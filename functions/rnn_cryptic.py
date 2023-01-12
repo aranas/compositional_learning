@@ -15,19 +15,22 @@ from sklearn.model_selection import train_test_split
 ### Generate sequences
 ######################
 
-convert_inputcue = {'A': 1, 
+convert_inputcue = {'X': 0,
+                    'A': 1, 
                     'B': 2,
                     'C': 3,
                     'D': 4,
                     'E': 5, 
                     'F': 6,
                     'G': 7,
-                    'H': 8}
+                    'H': 8,
+                    }
 
 convert_operation = {'+': 9,
                      '*': 10,
                      '-': 11,
-                     '%': 12}
+                     '%': 12,
+                     'X': 0}
 
 default_cues = {'A': 2, 
                 'B': 3,
@@ -37,6 +40,7 @@ default_cues = {'A': 2,
                 'F': 4,
                 'G': 9,
                 'H': 11}
+          
 
 def generate_trials(operators, input_ids, len_seq,\
                     init_values, rand, rep):
@@ -79,14 +83,12 @@ def operate_op(currval, step_tuple, cue_dict):
     Returns:
         ...
     """
-    if not cue_dict:
-        nextval = step_tuple[1]
-    else:
-        nextval = cue_dict[step_tuple[1]]
+    nextval = cue_dict[step_tuple[1]]
     if step_tuple[0] == '+': # add
         currval = currval + nextval
     elif step_tuple[0] == '*': # multiply
         currval = currval * nextval
+    
     return currval
 
 def calculate_output(step_tuple, cue_dict, bidmas):
@@ -97,24 +99,19 @@ def calculate_output(step_tuple, cue_dict, bidmas):
         ...
     """
     if bidmas:
-        calc_string = str(step_tuple[0])
-        if not cue_dict:
-            for i in range(1,len(step_tuple)):
-                calc_string = calc_string + step_tuple[i][0] + str(step_tuple[i][1])
-        else:
-            for i in range(1,len(step_tuple)):
-                calc_string = calc_string + step_tuple[i][0] + str(cue_dict[step_tuple[i][1]])
+        calc_string = str(cue_dict[step_tuple[0]])
+        for i in range(1,len(step_tuple)):
+            calc_string = calc_string + step_tuple[i][0] + str(cue_dict[step_tuple[i][1]])
         curr_val = eval(calc_string)
-    
     else:
-        curr_val = step_tuple[0]
+        curr_val = cue_dict[step_tuple[0]]
         for i in range(1,len(step_tuple)):
             curr_val = operate_op(curr_val, step_tuple[i], cue_dict)
     return curr_val
 
 
 def generate_sequences(operators, input_ids, len_seq, cue_dict = default_cues,\
-                       init_values = list(range(1,6)), rand=True, rep = 1, bidmas = False):
+                       init_values = list(range(1,6)), rand=False, rep = 1, bidmas = False):
     """ Function applies operations to input value
     Args:
         ...
@@ -127,17 +124,59 @@ def generate_sequences(operators, input_ids, len_seq, cue_dict = default_cues,\
         trial.append(trial_output)
     
     return(all_trials)
-      
-      
+
+def unique(list1):
+    unique_list = []
+    for x in list1:
+        if x not in unique_list:
+            unique_list.append(x)
+    return unique_list
+
+
+def pad_select(sequences, pos):
+    assert len(sequences[0][1:-1]) == len(pos), 'invalid position'
+    pad_seqs = []
+    for s in sequences: 
+        step = s[1:-1]
+        pad_trial = [('X','X')]*3
+        for i in range(len(pos)):
+            pad_trial[pos[i]] = step[i]
+        pad_seqs.append([s[0]] + pad_trial + [s[-1]])
+    return pad_seqs
+
+        
+def pad_seqs(sequences):
+    pos = [[0,1], [1,2], [0,2]]
+    pad_seqs = []
+    for s in sequences: 
+        pad_trials = []
+        step = s[1:-1]
+
+        if len(step) == 1:
+            for i in range(3):
+                pad_trial = [('X','X')]*3
+                pad_trial[i] = step[0]
+                pad_trials.append([s[0]] + pad_trial + [s[-1]])
+            pad_seqs += pad_trials
+        elif len(step) == 2:
+            for p in pos:
+                pad_trial = [('X','X')]*3
+                for i in range(2):
+                    pad_trial[p[i]] = step[i]
+                pad_trials.append([s[0]] + pad_trial + [s[-1]])
+            pad_seqs += pad_trials
+    return pad_seqs     
+
+
 ##################################################
 ## Transform data to rnn data
 ##################################################
 
 
 class SequenceData(Dataset):
-    def __init__(self, data, labels, seq_len, stages, cont_out, primitive_type):
+    def __init__(self, data, labels, seq_len, stages, cont_out):
 
-        self.data = convert_seq2onehot(data, stages, primitive_type)
+        self.data = convert_seq2onehot(data, stages)
         self.seq_len = seq_len
         if cont_out:
             self.labels = labels
@@ -153,7 +192,7 @@ class SequenceData(Dataset):
         return sequence, out_state
     
     
-def convert_seq2inputs(sequences, seq_len=5, stages = False, cont_out = True, num_classes=13, primitive_type = False):
+def convert_seq2inputs(sequences, seq_len=5, stages = False, cont_out = True, num_classes=14):
     '''
     Function converts sequences as they are generated by generate_experiment_lists.py
     into input to be fed into RNN (one-hote encoded)
@@ -167,12 +206,12 @@ def convert_seq2inputs(sequences, seq_len=5, stages = False, cont_out = True, nu
     seq = [sublist[:-1] for sublist in sequences]
     out = [sublist[-1] for sublist in sequences]
     
-    seqdata = SequenceData(seq, out, seq_len, stages, cont_out, primitive_type)
+    seqdata = SequenceData(seq, out, seq_len, stages, cont_out)
 
     return seqdata
 
 
-def convert_seq2onehot(seq, stages, primitive_type, num_classes=13):
+def convert_seq2onehot(seq, stages, num_classes=14):
     """ Function ...
     Args:
         ...
@@ -185,25 +224,17 @@ def convert_seq2onehot(seq, stages, primitive_type, num_classes=13):
         trial_data = []
         for i,t in enumerate(trial):
             if i==0:
-                init = torch.zeros(num_classes)
-                init[0] = t
+                init = torch.tensor(convert_inputcue[t])
+                init = torch.nn.functional.one_hot(init, num_classes=num_classes)
                 trial_data.append(init)
                 continue
             else:
                 op = torch.tensor(convert_operation[t[0]])
                 op = torch.nn.functional.one_hot(op, num_classes=num_classes)
-                if not primitive_type:
-                    inputcue = torch.tensor(convert_inputcue[t[1]])
-                    inputcue = torch.nn.functional.one_hot(inputcue, num_classes=num_classes)
-                elif primitive_type == 'op':
-                    inputcue = torch.zeros(num_classes)
-                    inputcue[0] = t[1]
-                if stages:
-                    op_cue = op + inputcue
-                    trial_data.append(op_cue)
-                else:
-                    trial_data.append(op)
-                    trial_data.append(inputcue)
+                inputcue = torch.tensor(convert_inputcue[t[1]])
+                inputcue = torch.nn.functional.one_hot(inputcue, num_classes=num_classes)
+                trial_data.append(op)
+                trial_data.append(inputcue)
         data.append(torch.stack(trial_data))
 
     data = torch.stack(data,dim=0) #combine into tensor of shape n_trials X n_time_steps X inputvector_size

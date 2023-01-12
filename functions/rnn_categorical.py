@@ -9,7 +9,6 @@ from torch.utils.data import Dataset, DataLoader, random_split
 import torch.nn as nn
 import pickle
 import random
-from sklearn.model_selection import train_test_split
 
 ######################
 ### Generate sequences
@@ -46,6 +45,9 @@ def generate_trials(operators, input_ids, len_seq,\
         operators, input_ids, init_values: lists of operator, input cue and initial values
         len_seq: number of operation and input pairs per sequence
         replacement: whether an operation/input can be repeated in a sequence
+        init_values: initial values
+        rand: random selection (True) exhaustive list of combinations (False)
+        rep: number of repeats of operation
     Returns:
         Output is an array of shape n X len_seq+1.
         Each row is one of n unique ordered permutations.
@@ -135,14 +137,11 @@ def generate_sequences(operators, input_ids, len_seq, cue_dict = default_cues,\
 
 
 class SequenceData(Dataset):
-    def __init__(self, data, labels, seq_len, stages, cont_out, primitive_type):
+    def __init__(self, data, labels, seq_len, stages, primitive_type):
 
         self.data = convert_seq2onehot(data, stages, primitive_type)
         self.seq_len = seq_len
-        if cont_out:
-            self.labels = labels
-        else:
-            self.labels = convert_outs2labels(labels)
+        self.labels = convert_outs2labels(labels)
             
     def __len__(self):
         return len(self.data)
@@ -180,7 +179,6 @@ def convert_seq2onehot(seq, stages, primitive_type, num_classes=13):
         ...
     """
     data = []
-
     for trial in seq:
         trial_data = []
         for i,t in enumerate(trial):
@@ -204,11 +202,13 @@ def convert_seq2onehot(seq, stages, primitive_type, num_classes=13):
                 else:
                     trial_data.append(op)
                     trial_data.append(inputcue)
-        data.append(torch.stack(trial_data))
 
+                    
+        data.append(torch.stack(trial_data))
+        
     data = torch.stack(data,dim=0) #combine into tensor of shape n_trials X n_time_steps X inputvector_size
     data = data.numpy()
-
+    
     return data
 
 
