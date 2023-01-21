@@ -1,9 +1,0 @@
-num_classes = 14
-hidden_size = 20
-num_layers = 1
-learningRate = 0.005
-
-operators = ['+', '*']
-input_ids = ['A', 'B'] # 2, 3
-init_values = [5,7]
-1 step

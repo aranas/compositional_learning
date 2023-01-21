@@ -88,6 +88,8 @@ def operate_op(currval, step_tuple, cue_dict):
         currval = currval + nextval
     elif step_tuple[0] == '*': # multiply
         currval = currval * nextval
+    elif step_tuple[0] == '-': # subtract
+        currval = currval - nextval
     
     return currval
 
@@ -145,7 +147,7 @@ def pad_select(sequences, pos):
     return pad_seqs
 
         
-def pad_seqs(sequences):
+def pad_seqs_3step(sequences):
     pos = [[0,1], [1,2], [0,2]]
     pad_seqs = []
     for s in sequences: 
@@ -165,7 +167,24 @@ def pad_seqs(sequences):
                     pad_trial[p[i]] = step[i]
                 pad_trials.append([s[0]] + pad_trial + [s[-1]])
             pad_seqs += pad_trials
+    return pad_seqs
+
+def pad_seqs_2step(sequences):
+    pos = [[0,1], [1,2], [0,2]]
+    pad_seqs = []
+    for s in sequences: 
+        pad_trials = []
+        step = s[1:-1]
+        if len(step) == 1:
+            for i in range(2):
+                pad_trial = [('X','X')]*2
+                pad_trial[i] = step[0]
+                pad_trials.append([s[0]] + pad_trial + [s[-1]])
+            pad_seqs += pad_trials
+        else:
+            pad_seqs = sequences
     return pad_seqs     
+
 
 
 ##################################################

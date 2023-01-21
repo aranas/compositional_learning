@@ -50,5 +50,3 @@ def plotNN_shifted(array_list, labels = ['complex', 'simple'], colors = ['blue',
     plt.legend()
 
 
-
-
