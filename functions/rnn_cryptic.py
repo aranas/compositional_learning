@@ -16,23 +16,25 @@ from sklearn.model_selection import train_test_split
 ######################
 
 convert_inputcue = {'X': 0,
-                    'A': 1, 
-                    'B': 2,
-                    'C': 3,
-                    'D': 4,
-                    'E': 5, 
-                    'F': 6,
-                    'G': 7,
-                    'H': 8,
+                    'Y': 1,
+                    'A': 2, 
+                    'B': 3,
+                    'C': 4,
+                    'D': 5,
+                    'E': 6, 
+                    'F': 7,
+                    'G': 8,
+                    'H': 9
                     }
 
-convert_operation = {'+': 9,
-                     '*': 10,
-                     '-': 11,
-                     '%': 12,
-                     'X': 0}
+convert_operation = {'+': 10,
+                     '*': 11,
+                     '-': 12,
+                     '%': 13}
 
-default_cues = {'A': 2, 
+default_cues = {'X': 0,
+                'Y': 1,
+                'A': 2, 
                 'B': 3,
                 'C': 5,
                 'D': 7,
@@ -135,41 +137,19 @@ def unique(list1):
     return unique_list
 
 
-def pad_select(sequences, pos):
+def pad_select(sequences, pos, padder):
     assert len(sequences[0][1:-1]) == len(pos), 'invalid position'
     pad_seqs = []
     for s in sequences: 
         step = s[1:-1]
-        pad_trial = [('X','X')]*3
+        pad_trial = [padder]*3
         for i in range(len(pos)):
             pad_trial[pos[i]] = step[i]
         pad_seqs.append([s[0]] + pad_trial + [s[-1]])
     return pad_seqs
 
-        
-def pad_seqs_3step(sequences):
-    pos = [[0,1], [1,2], [0,2]]
-    pad_seqs = []
-    for s in sequences: 
-        pad_trials = []
-        step = s[1:-1]
 
-        if len(step) == 1:
-            for i in range(3):
-                pad_trial = [('X','X')]*3
-                pad_trial[i] = step[0]
-                pad_trials.append([s[0]] + pad_trial + [s[-1]])
-            pad_seqs += pad_trials
-        elif len(step) == 2:
-            for p in pos:
-                pad_trial = [('X','X')]*3
-                for i in range(2):
-                    pad_trial[p[i]] = step[i]
-                pad_trials.append([s[0]] + pad_trial + [s[-1]])
-            pad_seqs += pad_trials
-    return pad_seqs
-
-def pad_seqs_2step(sequences):
+def pad_seqs_2step(sequences, padder=('+','X')):
     pos = [[0,1], [1,2], [0,2]]
     pad_seqs = []
     for s in sequences: 
@@ -177,7 +157,7 @@ def pad_seqs_2step(sequences):
         step = s[1:-1]
         if len(step) == 1:
             for i in range(2):
-                pad_trial = [('X','X')]*2
+                pad_trial = [padder]*2
                 pad_trial[i] = step[0]
                 pad_trials.append([s[0]] + pad_trial + [s[-1]])
             pad_seqs += pad_trials
@@ -185,7 +165,11 @@ def pad_seqs_2step(sequences):
             pad_seqs = sequences
     return pad_seqs     
 
-
+def pad_seqs_1step(sequences, padder=('+','X')):
+    pad_seqs = []
+    for s in sequences: 
+        pad_seqs.append([s[0]] + [padder]*2 + [default_cues[s[0]]])
+    return pad_seqs
 
 ##################################################
 ## Transform data to rnn data
