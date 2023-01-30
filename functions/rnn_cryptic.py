@@ -42,6 +42,22 @@ default_cues = {'X': 0,
                 'F': 4,
                 'G': 9,
                 'H': 11}
+
+onehot_dict = {0:'X',
+                1:'Y',
+                2:'A', 
+                3:'B',
+                4:'C',
+                5:'D',
+                6:'E', 
+                7:'F',
+                8:'G',
+                9:'H',
+               10:'+',
+               11:'*',
+               12:'-',
+               13:'%',
+                    }
           
 
 def generate_trials(operators, input_ids, len_seq,\
@@ -114,7 +130,7 @@ def calculate_output(step_tuple, cue_dict, bidmas):
     return curr_val
 
 
-def generate_sequences(operators, input_ids, len_seq, cue_dict = default_cues,\
+def generate_sequences(operators, input_ids, len_seq, cue_dict,\
                        init_values = list(range(1,6)), rand=False, rep = 1, bidmas = False):
     """ Function applies operations to input value
     Args:
@@ -165,10 +181,10 @@ def pad_seqs_2step(sequences, padder=('+','X')):
             pad_seqs = sequences
     return pad_seqs     
 
-def pad_seqs_1step(sequences, padder=('+','X')):
+def pad_seqs_1step(sequences, cue_dict, padder=('+','X')):
     pad_seqs = []
     for s in sequences: 
-        pad_seqs.append([s[0]] + [padder]*2 + [default_cues[s[0]]])
+        pad_seqs.append([s[0]] + [padder]*2 + [cue_dict[s[0]]])
     return pad_seqs
 
 ##################################################
@@ -244,6 +260,13 @@ def convert_seq2onehot(seq, stages, num_classes=14):
     data = data.numpy()
 
     return data
+
+def onehot2seq(seqs):
+    curr_trial = []
+    for seq in seqs:
+        for step in seq:
+            curr_trial.append(onehot_dict[np.argmax(step).item()])
+    return curr_trial
 
 
 def convert_outs2labels(outputs, num_outs=1000):
