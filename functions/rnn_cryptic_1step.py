@@ -1,0 +1,266 @@
+import itertools
+import copy
+import collections
+import numpy as np
+from numpy.random import default_rng
+import matplotlib.pyplot as plt
+import torch
+from torch.utils.data import Dataset, DataLoader, random_split
+import torch.nn as nn
+import pickle
+import random
+from sklearn.model_selection import train_test_split
+
+######################
+### Generate sequences
+######################
+
+convert_inputcue = {'X': 0,
+                    'Y': 1,
+                    'A': 2, 
+                    'B': 3,
+                    'C': 4,
+                    'D': 5,
+                    'E': 6, 
+                    'F': 7,
+                    'G': 8,
+                    'H': 9,
+                    'I': 10, 
+                    'J': 11,
+                    'K': 12,
+                    'L': 13,
+                    'M': 14, 
+                    'N': 15,
+                    'O': 16,
+                    'P': 17
+                    }
+
+convert_operation = {'+': 18,
+                     '*': 19,
+                     '-': 20,
+                     '%': 21}
+
+onehot_dict = {0:'X',
+                1:'Y',
+                2:'A', 
+                3:'B',
+                4:'C',
+                5:'D',
+                6:'E', 
+                7:'F',
+                8:'G',
+                9:'H',
+                10:'I', 
+                11:'J',
+                12:'K',
+                13:'L',
+                14:'M', 
+                15:'N',
+                16:'O',
+                17:'P',
+                18:'+',
+                19:'*',
+                20:'-',
+                21:'%',
+                    }
+          
+def generate_trials(operators, input_ids, init_values):
+    
+    ''' function for generating all permutations of 1 step trials '''
+    
+    seq = []
+    combi_operators = list(itertools.product(operators, repeat=1))
+    combi_inputcue = list(itertools.product(input_ids, repeat=1))
+    for init in init_values:
+        for cue in combi_inputcue:
+            for op in combi_operators:
+                seq.append([init,
+                            *zip(tuple(op), cue)]) #group per time point t
+
+    return seq
+
+def operate_op(currval, step_tuple, cue_dict):
+    
+    """ Function applies operations to input value
+    """
+    nextval = cue_dict[step_tuple[1]]
+    if step_tuple[0] == '+': # add
+        currval = currval + nextval
+    elif step_tuple[0] == '*': # multiply
+        currval = currval * nextval
+    elif step_tuple[0] == '-': # subtract
+        currval = currval - nextval
+    
+    return currval
+
+def calculate_output(step_tuple, cue_dict, bidmas):
+    """ Function applies operations to input value
+    Args:
+        ...
+    Returns:
+        ...
+    """
+    if bidmas:
+        calc_string = str(cue_dict[step_tuple[0]])
+        for i in range(1,len(step_tuple)):
+            calc_string = calc_string + step_tuple[i][0] + str(cue_dict[step_tuple[i][1]])
+        curr_val = eval(calc_string)
+    else:
+        curr_val = cue_dict[step_tuple[0]]
+        for i in range(1,len(step_tuple)):
+            curr_val = operate_op(curr_val, step_tuple[i], cue_dict)
+    return curr_val
+
+
+def generate_sequences(operators, input_ids, len_seq, cue_dict,\
+                       init_values = list(range(1,6)), rand=False, rep = 1, bidmas = False):
+    """ Function applies operations to input value
+    Args:
+        ...
+    Returns:
+        ...
+    """
+    all_trials = generate_trials(operators, input_ids, len_seq, init_values, rand, rep)
+    for trial in all_trials:
+        trial_output = calculate_output(trial, cue_dict, bidmas)
+        trial.append(trial_output)
+    
+    return(all_trials)
+
+def unique(list1):
+    unique_list = []
+    for x in list1:
+        if x not in unique_list:
+            unique_list.append(x)
+    return unique_list
+
+
+def pad_select(sequences, pos, padder):
+    assert len(sequences[0][1:-1]) == len(pos), 'invalid position'
+    pad_seqs = []
+    for s in sequences: 
+        step = s[1:-1]
+        pad_trial = [padder]*3
+        for i in range(len(pos)):
+            pad_trial[pos[i]] = step[i]
+        pad_seqs.append([s[0]] + pad_trial + [s[-1]])
+    return pad_seqs
+
+
+def pad_seqs_2step(sequences, padder=('+','X')):
+    pos = [[0,1], [1,2], [0,2]]
+    pad_seqs = []
+    for s in sequences: 
+        pad_trials = []
+        step = s[1:-1]
+        if len(step) == 1:
+            for i in range(2):
+                pad_trial = [padder]*2
+                pad_trial[i] = step[0]
+                pad_trials.append([s[0]] + pad_trial + [s[-1]])
+            pad_seqs += pad_trials
+        else:
+            pad_seqs = sequences
+    return pad_seqs     
+
+def pad_seqs_1step(sequences, cue_dict, padder=('+','X')):
+    pad_seqs = []
+    for s in sequences: 
+        pad_seqs.append([s[0]] + [padder]*2 + [cue_dict[s[0]]])
+    return pad_seqs
+
+##################################################
+## Transform data to rnn data
+##################################################
+
+
+class SequenceData(Dataset):
+    def __init__(self, data, labels, seq_len, stages, cont_out):
+
+        self.data = convert_seq2onehot(data, stages)
+        self.seq_len = seq_len
+        if cont_out:
+            self.labels = labels
+        else:
+            self.labels = convert_outs2labels(labels)
+            
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        sequence = self.data[index,:].astype(np.float32)
+        out_state = np.array(self.labels[index]).astype(np.float32)
+        return sequence, out_state
+    
+    
+def convert_seq2inputs(sequences, seq_len=5, stages = False, cont_out = True, num_classes=22):
+    '''
+    Function converts sequences as they are generated by generate_experiment_lists.py
+    into input to be fed into RNN (one-hote encoded)
+    Parameters:
+        sequences: list of trials with format : [initial_value, (operation, input_cue) ... , output_value]
+        num_classes: total number of features for onehot encoding
+        seq_len: number of time steps per sequence
+        stages: if False each unit is a time step, if True each tuple is a time step
+        cont_out: if True the output is continuous, if False output is categorical
+    ''' 
+    seq = [sublist[:-1] for sublist in sequences]
+    out = [sublist[-1] for sublist in sequences]
+    
+    seqdata = SequenceData(seq, out, seq_len, stages, cont_out)
+
+    return seqdata
+
+
+def convert_seq2onehot(seq, stages, num_classes=22):
+    """ Function ...
+    Args:
+        ...
+    Returns:
+        ...
+    """
+    data = []
+
+    for trial in seq:
+        trial_data = []
+        for i,t in enumerate(trial):
+            if i==0:
+                init = torch.tensor(convert_inputcue[t])
+                init = torch.nn.functional.one_hot(init, num_classes=num_classes)
+                trial_data.append(init)
+                continue
+            else:
+                op = torch.tensor(convert_operation[t[0]])
+                op = torch.nn.functional.one_hot(op, num_classes=num_classes)
+                inputcue = torch.tensor(convert_inputcue[t[1]])
+                inputcue = torch.nn.functional.one_hot(inputcue, num_classes=num_classes)
+                trial_data.append(op)
+                trial_data.append(inputcue)
+        data.append(torch.stack(trial_data))
+
+    data = torch.stack(data,dim=0) #combine into tensor of shape n_trials X n_time_steps X inputvector_size
+    data = data.numpy()
+
+    return data
+
+def onehot2seq(seqs):
+    curr_trial = []
+    for seq in seqs:
+        for step in seq:
+            curr_trial.append(onehot_dict[np.argmax(step).item()])
+    return curr_trial
+
+
+def convert_outs2labels(outputs, num_outs=1000):
+    """ Function ...
+    Args:
+        ...
+    Returns:
+        ...
+    """
+    all_outs = []
+    for out in outputs:
+        out = torch.tensor(out)
+        onehot_out = torch.nn.functional.one_hot(out, num_classes = num_outs)
+        all_outs.append(onehot_out)
+    return all_outs
