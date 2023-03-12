@@ -1,8 +1,6 @@
 import itertools
 import copy
-import collections
 import numpy as np
-from numpy.random import default_rng
 import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -10,6 +8,18 @@ import torch.nn as nn
 import pickle
 import random
 from sklearn.model_selection import train_test_split
+import time
+from joblib import Parallel, delayed
+import pandas as pd
+import sys
+import os
+import seaborn as sns 
+from sklearn.metrics import r2_score
+import math
+import matplotlib as mpl
+from sklearn.manifold import MDS
+from sklearn.metrics.pairwise import manhattan_distances, euclidean_distances
+import scipy
 
 ######################
 ### Generate sequences
@@ -88,6 +98,8 @@ def calculate_output(step_tuple_full, cue_dict):
     else:
         if step1[0] == '-':
             curr_val = -1*cue_dict[step1[1]]
+        elif step1[0] == '+':
+            curr_val = cue_dict[step1[1]]
     for i in range(1,len(step_tuple)):
         curr_val = operate_op(curr_val, step_tuple[i], cue_dict)
     return curr_val
@@ -299,6 +311,9 @@ def test_acc(model, testdata, hidden_size, verbose = False):
     return accs
 
 def test_preds(model, testdata, hidden_size, suffix = ''):
+    """ takes model and test data and returns a dataframe of:
+        trials, ground truth outputs, and model predictions """
+    
     model.eval()
     preds = []
     labs = []
@@ -359,7 +374,7 @@ def change_dict(seqs, new_dict):
 
     return inps
 
-def predcorr(mods, tests, plot_corr = True):
+def predcorr(mods, tests, hidden_size, plot_corr = True):
     dfs1 = []
     for i in range(len(mods)):
         df = test_preds(mods[i], [tests[i]], hidden_size)
@@ -377,7 +392,15 @@ def predcorr(mods, tests, plot_corr = True):
         plt.ylabel('Model prediction')
         plt.title('with primitive training, R^2 = ' + str(round(r2_val, 2)) )
              
-    return r2_val, df_fin, all_dfs1  
+    return r2_val, df_fin, all_dfs1 
+
+def predcorr_ind_mod(mod, test, hidden_size, plot_corr = True):
+    
+    df = test_preds(mod, [test], hidden_size)
+    preds, labs = df['pred'], df['label']
+    r2_val = r2_score(preds,labs)
+    
+    return r2_val 
 
 # -----------------
 # Generating trials
@@ -387,6 +410,43 @@ def generate_primitives(inputs, cue_dict):
     seq = []
     for inp in inputs:
         trial = [inp, '=']
+        trial.append(calculate_output(trial, cue_dict))
+        seq.append(trial)
+    return seq
+
+def generate_neg_primitives(inputs, cue_dict):
+    seq = []
+    for inp in inputs:
+        trial = [('-', inp), '=']
+        trial.append(-1*cue_dict[inp])
+        seq.append(trial)
+    return seq
+
+def generate_pos_primitives(inputs, cue_dict):
+    seq = []
+    for inp in inputs:
+        trial = [('+', inp), '=']
+        trial.append(cue_dict[inp])
+        seq.append(trial)
+    return seq
+
+def generate_complex_primitives(op, inputs, cue_dict):
+    seq = []
+    all_inputs = inputs.copy()
+    random.shuffle(all_inputs)
+    for q in range(int(len(all_inputs)/2)):
+        trial = [(op, all_inputs[2*q]), (op, all_inputs[2*q+1]), '=']
+        trial.append(calculate_output(trial, cue_dict))
+        seq.append(trial)
+    return seq
+
+def generate_balanced_primitives(op, inputs, cue_dict):
+    seq = []
+    inputs1 = inputs.copy()
+    inputs2 = inputs.copy()
+    n = int(len(inputs1)/2)
+    for i in range(n):
+        trial = [inputs1[i], (op, inputs2[i+n]), '=']
         trial.append(calculate_output(trial, cue_dict))
         seq.append(trial)
     return seq
@@ -413,16 +473,6 @@ def generate_self(op, inputs, cue_dict):
         seq += trial
     return seq
 
-def generate_other(op, inputs, cue_dict):
-    seq = []
-    inputs1 = inputs.copy()
-    inputs2 = inputs.copy()
-    inputs2.append(inputs2.pop(0))
-    for i in range(len(inputs1)):
-        trial = [inputs1[i], (op, inputs2[i]), '=']
-        trial.append(calculate_output(trial, cue_dict))
-        seq.append(trial)
-    return seq
 
 def generate_other(op, inputs, cue_dict):
     seq = []
@@ -447,16 +497,57 @@ def generate_other_reverse(op, inputs, cue_dict):
         seq.append(trial)
     return seq
 
-def generate_other_reverse_primitives(op, inputs, cue_dict):
+def generate_neg_trials(op, input_ids, init_values, cue_dict):
+    
+    ''' function for generating all permutations of 1 step trials '''
+    
+    seq = []
+    combi_inputcue = list(itertools.product(input_ids, repeat=1))
+    for init in init_values:
+        for cue in combi_inputcue:
+            seq.append([('-',init),
+                        *zip(tuple(op), cue), '=']) #group per time point t
+    for s in seq:
+        s.append(calculate_output(s, cue_dict))
+    return seq
+
+def generate_neg_other(op, inputs, cue_dict):
     seq = []
     inputs1 = inputs.copy()
     inputs2 = inputs.copy()
-    n = int(len(inputs1)/2)
-    for i in range(n):
-        trial = [inputs1[i], (op, inputs2[i+n]), '=']
+    inputs2.append(inputs2.pop(0))
+    for i in range(len(inputs1)):
+        trial = [('-',inputs1[i]), (op, inputs2[i]), '=']
         trial.append(calculate_output(trial, cue_dict))
         seq.append(trial)
     return seq
+
+
+def generate_pos_trials(op, input_ids, init_values, cue_dict):
+    
+    ''' function for generating all permutations of 1 step trials '''
+    
+    seq = []
+    combi_inputcue = list(itertools.product(input_ids, repeat=1))
+    for init in init_values:
+        for cue in combi_inputcue:
+            seq.append([('+',init),
+                        *zip(tuple(op), cue), '=']) #group per time point t
+    for s in seq:
+        s.append(calculate_output(s, cue_dict))
+    return seq
+
+def generate_pos_other(op, inputs, cue_dict):
+    seq = []
+    inputs1 = inputs.copy()
+    inputs2 = inputs.copy()
+    inputs2.append(inputs2.pop(0))
+    for i in range(len(inputs1)):
+        trial = [('+',inputs1[i]), (op, inputs2[i]), '=']
+        trial.append(calculate_output(trial, cue_dict))
+        seq.append(trial)
+    return seq
+
 
 # ----------
 # plotting
@@ -530,11 +621,201 @@ def heatmap_acc(num_inputs, df, ax):
 
 
 
+def heatmap_acc_sign(num_inputs, df, ax):
+    
+    total_syms = ['A','B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
+    map_syms = total_syms[:num_inputs]
+    data_accs = np.empty((num_inputs, num_inputs))
+    data_accs[:] = np.NaN
+    for r, trial in enumerate(df.index):
+        i = map_syms.index(eval(trial)[1])
+        j = map_syms.index(eval(trial)[3])
+        acc = round(df.iloc[r]['acc'], 2)
+        data_accs[i,j] = acc
+    
+    # Show all ticks and label them with the respective list entries
+    ax.set_xticks(np.arange(num_inputs), labels=map_syms)
+    ax.set_yticks(np.arange(num_inputs), labels=map_syms)
+
+    #cmap = mpl.colors.ListedColormap(['yellow', 'orange', 'darkorange','red'])
+    from matplotlib import cm
+    new_reds = cm.get_cmap('Reds', 10)
+    cmap=new_reds
+    bounds = list(np.arange(0,1.1,0.1))
+    norm = mpl.colors.BoundaryNorm(bounds, cmap.N)
+    im = ax.imshow(data_accs, cmap=cmap, norm=norm)
+
+    # Loop over data dimensions and create text annotations.
+    for i in range(num_inputs):
+        for j in range(num_inputs):
+            if np.isnan(data_accs[i, j]):
+                pass
+            else:
+                text = ax.text(j,i, data_accs[i, j],
+                              ha="center", va="center", color="black", fontsize=12)
+
+#####################################
+# Analysis
+#####################################
+
+def get_reps(model, testdata, hidden_size):
+    """ get hidden layer activations at each step"""
+    model.eval()
+    trials = []
+    hiddens = []
+    for testset in testdata:
+        for x,y in testset:
+            for i in range(len(x)):
+                hidden_arr = np.empty((0,  hidden_size))
+                hidden = torch.zeros(1, hidden_size)[0]
+                for step in x[i]:
+                    hidden, y_hat = model.get_activations(step,hidden)
+                    hidden_arr = np.vstack([hidden_arr, hidden.detach().numpy()])
+            hiddens.append(hidden_arr)
+            trials.append(str(onehot2seq(x)))
+    return hiddens, trials 
+
+def find_99_acc_idx(acc_vals):
+    """find number of epochs until 99% train accuracy is reached"""
+    count = 0
+    thresh_idx = -1
+    for i, rval in enumerate(acc_vals):
+        if rval > 0.99:
+            count +=1
+        else:
+            count = 0
+        if count > 10:
+            thresh_idx = i - 10
+            break
+    return thresh_idx
+
+###########################################
+## RSA
+###########################################
+
+def calculate_RDMs_old(res, testseq, fully_trained = True):
+    
+    acc_df = res['acc_df']
+    if fully_trained:
+        all_acc_mods = acc_df[(acc_df['acc_train'] == 1) & (acc_df['acc_train_p'] == 1)].index
+    else:
+        all_acc_mods = acc_df.index
+    print('no. 100% trained RNNs: ', len(all_acc_mods))
+    mod_list = all_acc_mods # choose subset of rnns 
+    
+    rdms = [[] for _ in range(5)] # initialise empty lists/arrays
+    rdms_p = [[] for _ in range(5)]
+
+    # extracts results from dictionary
+    mods = res['mods']
+    mods_p = res['mods_p']
+    cue_dicts = res['cue_dicts']
+    ft_cue_dicts = [cue_dicts[j] for j in mod_list]
+
+    for ind, m in enumerate(mod_list): # for each model 
+        
+        testseqs = change_dict(testseq, cue_dicts[m])
+        test_inputs = convert_seq2inputs(testseq, num_classes=num_classes, seq_len=5)
+        testset = DataLoader(test_inputs, batch_size=batchsize, shuffle=False)
+        
+        # get activations for control model
+        hiddens, trials = get_reps(mods[m], [testset], hidden_size)
+        for h in range(5): 
+            hid_vals = np.array([hid[h,:] for hid in hiddens]) # combine activations from each trial for the time step
+            rep_mat = euclidean_distances(hid_vals) # calculate euclidean distance matrix between trials
+            rdms[h].append(rep_mat)
+            
+        # get activations for primitive trained model
+        hiddens_p, trials = get_reps(mods_p[m], [testset], hidden_size)    
+        for h in range(5):
+            hid_vals = np.array([hid[h,:] for hid in hiddens_p])
+            rep_mat = euclidean_distances(hid_vals)
+            rdms_p[h].append(rep_mat)
+            
+    return {'rdms': rdms, 'rdms_p': rdms_p, 'ft_cue_dicts': ft_cue_dicts}
+
+def calculate_RDMs(res1, testseq, num_classes=22, batchsize=1,hidden_size=20, subset = 'ft'):
+    
+    acc_df = res1['acc_df']
+    if subset == 'ft':
+        all_acc_mods = acc_df[(acc_df['acc_train'] == 1) & (acc_df['acc_train_b'] == 1)&\
+                              (acc_df['acc_train_bp'] == 1) & (acc_df['acc_train_p'] == 1)].index
+    elif subset == 'all':
+        all_acc_mods = acc_df.index
+    print('no. 100% trained RNNs: ', len(all_acc_mods))
+    mod_list = all_acc_mods # choose subset of rnns 
+
+    rdms = [[] for _ in range(4)] # initialise empty lists/arrays
+    rdms_p = [[] for _ in range(4)]
+    rdms_b = [[] for _ in range(4)] # initialise empty lists/arrays
+    rdms_bp = [[] for _ in range(4)]
+    # extracts res1ults from dictionary
+    mods = res1['mods']
+    mods_p = res1['mods_p']
+    mods_b = res1['mods_b']
+    mods_bp = res1['mods_bp']
+
+    cue_dicts = res1['cue_dicts']
+    ft_cue_dicts = [cue_dicts[j] for j in mod_list]
+
+    for ind, m in enumerate(mod_list): # for each model 
+
+        testseqs = change_dict(testseq, cue_dicts[m])
+        test_inputs = convert_seq2inputs(testseqs, num_classes=num_classes, seq_len=5)
+        testset = DataLoader(test_inputs, batch_size=batchsize, shuffle=False)
+
+        # get activations for control model
+        hiddens, trials = get_reps(mods[m], [testset], hidden_size)
+        for h in range(4): 
+            hid_vals = np.array([hid[h+1,:] for hid in hiddens]) # combine activations from each trial for the time step
+            rep_mat = euclidean_distances(hid_vals) # calculate euclidean distance matrix between trials
+            rdms[h].append(rep_mat)
+
+        # get activations for primitive trained model
+        hiddens_p, trials = get_reps(mods_p[m], [testset], hidden_size)    
+        for h in range(4):
+            hid_vals = np.array([hid[h+1,:] for hid in hiddens_p])
+            rep_mat = euclidean_distances(hid_vals)
+            rdms_p[h].append(rep_mat)
+
+        # get activations for control model
+        hiddens_b, trials = get_reps(mods_b[m], [testset], hidden_size)
+        for h in range(4): 
+            hid_vals = np.array([hid[h+1,:] for hid in hiddens_b]) # combine activations from each trial for the time step
+            rep_mat = euclidean_distances(hid_vals) # calculate euclidean distance matrix between trials
+            rdms_b[h].append(rep_mat)
+
+        # get activations for primitive trained model
+        hiddens_bp, trials = get_reps(mods_p[m], [testset], hidden_size)    
+        for h in range(4):
+            hid_vals = np.array([hid[h+1,:] for hid in hiddens_bp])
+            rep_mat = euclidean_distances(hid_vals)
+            rdms_bp[h].append(rep_mat)
+
+            
+    return {'rdms': rdms, 'rdms_p': rdms_p, 'rdms_b': rdms_b, 'rdms_bp': rdms_bp, 'ft_cue_dicts': ft_cue_dicts}
 
 
+########### regression
 
-
-
-
-
-
+def regress_RDM(time_step, rdm, ft_cue_dicts, valset_idx, ranked = False, rank_dict=None):
+    rs = []
+    for i, cuedict in enumerate(ft_cue_dicts):
+        if ranked:
+            curr_tests = change_dict(testseqs, rank_dict)
+        else:
+            curr_tests = change_dict(testseqs, cuedict)
+        control_outs = [t[-1] for t in curr_tests]
+        control_RDM = abs(np.array([control_outs]*16) - np.array([control_outs]*16).T)
+        x = []
+        y = []
+        for p in valset_idx:
+            for q in valset_idx:
+                x.append(rdm[time_step][i][p,q])
+                y.append(control_RDM[p,q])
+        x = np.array(x).reshape(-1,1)
+        y = np.array(y)
+        model = LinearRegression().fit(x, y)
+        r_sq = model.score(x, y)
+        rs.append(r_sq)
+    return rs
