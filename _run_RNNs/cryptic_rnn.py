@@ -20,6 +20,16 @@ import matplotlib as mpl
 from sklearn.manifold import MDS
 from sklearn.metrics.pairwise import manhattan_distances, euclidean_distances
 import scipy
+from matplotlib import cm
+from matplotlib.lines import Line2D
+from sklearn.decomposition import PCA
+
+######################
+### Color schemes
+######################
+
+bp_colors = ['#F17720', '#00A7E1']
+
 
 ######################
 ### Generate sequences
@@ -292,6 +302,8 @@ def run_acc(model,optimizer,criterion, train_data, test_data, epochs, hidden_siz
     return loss_history, all_accs
 
 def test_acc(model, testdata, hidden_size, verbose = False):
+    """ Args: model and test data 
+        Returns: test accuracy """
     model.eval()
     accs = np.empty((1, 0))
     for testset in testdata:
@@ -392,7 +404,7 @@ def predcorr(mods, tests, hidden_size, plot_corr = True):
         plt.ylabel('Model prediction')
         plt.title('with primitive training, R^2 = ' + str(round(r2_val, 2)) )
              
-    return r2_val, df_fin, all_dfs1 
+    return r2_val, df_fin, dfs1 
 
 def predcorr_ind_mod(mod, test, hidden_size, plot_corr = True):
     
@@ -601,7 +613,6 @@ def heatmap_acc(num_inputs, df, ax):
     ax.set_yticks(np.arange(num_inputs), labels=map_syms)
 
     #cmap = mpl.colors.ListedColormap(['yellow', 'orange', 'darkorange','red'])
-    from matplotlib import cm
     new_reds = cm.get_cmap('Reds', 10)
     cmap=new_reds
     bounds = list(np.arange(0,1.1,0.1))
@@ -616,10 +627,6 @@ def heatmap_acc(num_inputs, df, ax):
             else:
                 text = ax.text(j,i, data_accs[i, j],
                               ha="center", va="center", color="black", fontsize=12)
-
-
-
-
 
 def heatmap_acc_sign(num_inputs, df, ax):
     
@@ -636,9 +643,6 @@ def heatmap_acc_sign(num_inputs, df, ax):
     # Show all ticks and label them with the respective list entries
     ax.set_xticks(np.arange(num_inputs), labels=map_syms)
     ax.set_yticks(np.arange(num_inputs), labels=map_syms)
-
-    #cmap = mpl.colors.ListedColormap(['yellow', 'orange', 'darkorange','red'])
-    from matplotlib import cm
     new_reds = cm.get_cmap('Reds', 10)
     cmap=new_reds
     bounds = list(np.arange(0,1.1,0.1))
@@ -734,7 +738,7 @@ def calculate_RDMs_old(res, testseq, fully_trained = True):
             
     return {'rdms': rdms, 'rdms_p': rdms_p, 'ft_cue_dicts': ft_cue_dicts}
 
-def calculate_RDMs(res1, testseq, num_classes=22, batchsize=1,hidden_size=20, subset = 'ft'):
+def calculate_RDMs(res1, testseq, num_classes=22, batchsize=1,hidden_size=20, subset = 'ft', Tmax=4):
     
     acc_df = res1['acc_df']
     if subset == 'ft':
@@ -745,10 +749,10 @@ def calculate_RDMs(res1, testseq, num_classes=22, batchsize=1,hidden_size=20, su
     print('no. 100% trained RNNs: ', len(all_acc_mods))
     mod_list = all_acc_mods # choose subset of rnns 
 
-    rdms = [[] for _ in range(4)] # initialise empty lists/arrays
-    rdms_p = [[] for _ in range(4)]
-    rdms_b = [[] for _ in range(4)] # initialise empty lists/arrays
-    rdms_bp = [[] for _ in range(4)]
+    rdms = [[] for _ in range(Tmax)] # initialise empty lists/arrays
+    rdms_p = [[] for _ in range(Tmax)]
+    rdms_b = [[] for _ in range(Tmax)] # initialise empty lists/arrays
+    rdms_bp = [[] for _ in range(Tmax)]
     # extracts res1ults from dictionary
     mods = res1['mods']
     mods_p = res1['mods_p']
@@ -766,34 +770,104 @@ def calculate_RDMs(res1, testseq, num_classes=22, batchsize=1,hidden_size=20, su
 
         # get activations for control model
         hiddens, trials = get_reps(mods[m], [testset], hidden_size)
-        for h in range(4): 
+        for h in range(Tmax): 
             hid_vals = np.array([hid[h+1,:] for hid in hiddens]) # combine activations from each trial for the time step
             rep_mat = euclidean_distances(hid_vals) # calculate euclidean distance matrix between trials
             rdms[h].append(rep_mat)
 
         # get activations for primitive trained model
         hiddens_p, trials = get_reps(mods_p[m], [testset], hidden_size)    
-        for h in range(4):
+        for h in range(Tmax):
             hid_vals = np.array([hid[h+1,:] for hid in hiddens_p])
             rep_mat = euclidean_distances(hid_vals)
             rdms_p[h].append(rep_mat)
 
         # get activations for control model
         hiddens_b, trials = get_reps(mods_b[m], [testset], hidden_size)
-        for h in range(4): 
+        for h in range(Tmax): 
             hid_vals = np.array([hid[h+1,:] for hid in hiddens_b]) # combine activations from each trial for the time step
             rep_mat = euclidean_distances(hid_vals) # calculate euclidean distance matrix between trials
             rdms_b[h].append(rep_mat)
 
         # get activations for primitive trained model
-        hiddens_bp, trials = get_reps(mods_p[m], [testset], hidden_size)    
-        for h in range(4):
+        hiddens_bp, trials = get_reps(mods_bp[m], [testset], hidden_size)    
+        for h in range(Tmax):
             hid_vals = np.array([hid[h+1,:] for hid in hiddens_bp])
             rep_mat = euclidean_distances(hid_vals)
             rdms_bp[h].append(rep_mat)
 
-            
     return {'rdms': rdms, 'rdms_p': rdms_p, 'rdms_b': rdms_b, 'rdms_bp': rdms_bp, 'ft_cue_dicts': ft_cue_dicts}
+
+def calculate_RDMs_wprims(res1, testseq, num_classes=22, batchsize=1,hidden_size=20, subset = 'all', h=1):
+    
+    acc_df = res1['acc_df']
+    if subset == 'ft':
+        all_acc_mods = acc_df[(acc_df['acc_train'] == 1) & (acc_df['acc_train_b'] == 1)&\
+                              (acc_df['acc_train_bp'] == 1) & (acc_df['acc_train_p'] == 1)].index
+    elif subset == 'all':
+        all_acc_mods = acc_df.index
+    print('no. 100% trained RNNs: ', len(all_acc_mods))
+    mod_list = all_acc_mods # choose subset of rnns 
+
+    rdms = [] # initialise empty lists/arrays
+    rdms_p = []
+    rdms_b = [] # initialise empty lists/arrays
+    rdms_bp = []
+    
+    # extracts res1ults from dictionary
+    mods = res1['mods']
+    mods_p = res1['mods_p']
+    mods_b = res1['mods_b']
+    mods_bp = res1['mods_bp']
+
+    cue_dicts = res1['cue_dicts']
+    ft_cue_dicts = [cue_dicts[j] for j in mod_list]
+
+    for ind, m in enumerate(mod_list): # for each model
+
+        testseqs = change_dict(testseq, cue_dicts[m])
+        test_inputs = convert_seq2inputs(testseqs, num_classes=num_classes, seq_len=5)
+        testset = DataLoader(test_inputs, batch_size=batchsize, shuffle=False)
+
+        # get activations for control model
+        rmat = np.empty((0, len(testseq)))
+        hiddens, trials = get_reps(mods[m], [testset], hidden_size)
+        for hid in hiddens:
+            if hid.shape[0] < 4:
+                rmat = np.vstack([rmat, hid[h,:]])
+            else:
+                rmat = np.vstack([rmat, hid[h+2,:]])
+        rdms.append(euclidean_distances(rmat))
+        
+        rmat = np.empty((0, len(testseq)))
+        hiddens, trials = get_reps(mods_p[m], [testset], hidden_size)
+        for hid in hiddens:
+            if hid.shape[0] < 4:
+                rmat = np.vstack([rmat, hid[h,:]])
+            else:
+                rmat = np.vstack([rmat, hid[h+2,:]])
+        rdms_p.append(euclidean_distances(rmat))  
+
+        rmat = np.empty((0, len(testseq)))
+        hiddens, trials = get_reps(mods_b[m], [testset], hidden_size)
+        for hid in hiddens:
+            if hid.shape[0] < 4:
+                rmat = np.vstack([rmat, hid[h,:]])
+            else:
+                rmat = np.vstack([rmat, hid[h+2,:]])
+        rdms_b.append(euclidean_distances(rmat))  
+ 
+        rmat = np.empty((0, len(testseq)))
+        hiddens, trials = get_reps(mods_bp[m], [testset], hidden_size)
+        for hid in hiddens:
+            if hid.shape[0] < 4:
+                rmat = np.vstack([rmat, hid[h,:]])
+            else:
+                rmat = np.vstack([rmat, hid[h+2,:]])
+        rdms_bp.append(euclidean_distances(rmat))  
+
+    return {'rdms': rdms, 'rdms_p': rdms_p, 'rdms_b': rdms_b, 'rdms_bp': rdms_bp, 'ft_cue_dicts': ft_cue_dicts}
+
 
 
 ########### regression
@@ -819,3 +893,96 @@ def regress_RDM(time_step, rdm, ft_cue_dicts, valset_idx, ranked = False, rank_d
         r_sq = model.score(x, y)
         rs.append(r_sq)
     return rs
+
+#############################################
+#    MDS
+#############################################
+colors2 = ['green', 'blue', 'orange', 'red']*4
+colors1 = ['green']*4 + ['blue']*4 + ['orange']*4 + [ 'red']*4
+legend_elements = [Line2D([0], [0], marker='o', color='w', markerfacecolor='green', markersize=5, label='A + _'),
+                   Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', markersize=5, label='B + _'), 
+                       Line2D([0], [0], marker='o', color='w', markerfacecolor='orange', markersize=5, label='C + _'),
+                       Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markersize=5, label='D + _'),
+                       Line2D([0], [0], marker='o', color='w', markeredgecolor = 'green', markerfacecolor='none', markersize=10, label=' _ + A'),
+                       Line2D([0], [0], marker='o', color='w', markeredgecolor = 'blue',markerfacecolor='none', markersize=10, label=' _ + B'), 
+                       Line2D([0], [0], marker='o', color='w', markeredgecolor = 'orange',markerfacecolor='none', markersize=10, label=' _ + C'),
+                       Line2D([0], [0], marker='o', color='w', markeredgecolor = 'red',markerfacecolor='none', markersize=10, label=' _ + D')]
+
+
+def MDS_plot(matlist, testseqs, trainseqs, MDStype = 'MDS', title = '', min_dim = 0, rand_state = 0):
+    
+    valset = [t for t in testseqs if t not in trainseqs]
+    valset_idx = [testseqs.index(val) for val in valset]
+    
+    plt.rcParams['figure.figsize'] = 6, 6
+    fig, axs = plt.subplots(2,2)
+
+    for j, dist in enumerate(matlist):
+        if MDStype == 'PCA':
+            mds = PCA(n_components=3)
+        if MDStype == 'MDS':
+            mds = MDS(dissimilarity='precomputed',random_state=rand_state, n_components=3)
+
+        X_transform = mds.fit_transform(dist)
+        ax = axs[math.floor(j/2), j%2]
+        ax.title.set_text('step: '+str(j+1))
+        for i in range(len(testseqs)):
+            if i in valset_idx:
+                alph = 1
+            else:
+                alph = 0.2
+            ax.scatter(X_transform[i,min_dim], X_transform[i,min_dim+1], color = colors1[i], alpha = alph)
+            ax.scatter(X_transform[i,min_dim], X_transform[i,min_dim+1], s=100, facecolors='none', edgecolors=colors2[i], alpha = alph)
+
+    plt.suptitle('2D-MDS'+title)
+    fig.legend(handles=legend_elements,  loc='center left', bbox_to_anchor=(1, 0.5)) 
+
+
+def MDS_plot_3D(matlist, testseqs, trainseqs, MDStype = 'MDS', title = ''):
+    
+    valset = [t for t in testseqs if t not in trainseqs]
+    valset_idx = [testseqs.index(val) for val in valset]    
+    
+    plt.rcParams['figure.figsize'] = 6, 6
+    fig, axs = plt.subplots(2,2,  subplot_kw=dict(projection='3d'))
+
+    for j, dist in enumerate(matlist):
+        if MDStype == 'PCA':
+            mds = PCA(n_components=3)
+        if MDStype == 'MDS':
+            mds = MDS(dissimilarity='precomputed',random_state=0, n_components=3)
+        X_transform = mds.fit_transform(dist)
+        ax = axs[math.floor(j/2), j%2]
+        ax.title.set_text('step: '+str(j+1))
+        for i in range(len(testseqs)):
+            if i in valset_idx:
+                alph = 1
+            else:
+                alph = 0.2
+            ax.scatter(X_transform[i,0], X_transform[i,1], X_transform[i,2], color = colors1[i], alpha = alph)
+            ax.scatter(X_transform[i,0], X_transform[i,1],  X_transform[i,2],s=100, facecolors='none', edgecolors=colors2[i], alpha = alph)
+
+    plt.suptitle('2D-MDS'+title)
+    fig.legend(handles=legend_elements,  loc='center left', bbox_to_anchor=(1, 0.5)) 
+    
+def MDS_plot_prims(matlist, testseqs, MDStype = 'MDS', title = '', min_dim = 0):
+
+    plt.rcParams['figure.figsize'] = 6, 3
+    fig, axs = plt.subplots(1,2)
+
+    for j, dist in enumerate(matlist):
+        if MDStype == 'PCA':
+            mds = PCA(n_components=3)
+        if MDStype == 'MDS':
+            mds = MDS(dissimilarity='precomputed',random_state=0, n_components=3)
+
+        X_transform = mds.fit_transform(dist)
+        ax = axs[j]
+        ax.title.set_text('step: '+str(j+1))
+        for i in range(len(testseqs)):
+            ax.scatter(X_transform[i,min_dim], X_transform[i,min_dim+1], color = colors1[i])
+            ax.scatter(X_transform[i,min_dim], X_transform[i,min_dim+1], s=100, facecolors='none', edgecolors=colors2[i])
+
+    plt.suptitle('2D-MDS'+title)
+    fig.legend(handles=legend_elements,  loc='center left', bbox_to_anchor=(1, 0.5)) 
+
