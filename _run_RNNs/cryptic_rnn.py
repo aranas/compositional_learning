@@ -302,6 +302,22 @@ def run_acc(model,optimizer,criterion, train_data, test_data, epochs, hidden_siz
 
     return loss_history, all_accs
 
+def run_loss(model,optimizer,criterion, train_data, test_data, epochs, hidden_size, verbose = False):
+    
+    loss_history = np.empty((0,1))
+    test_loss_history = np.empty((0,len(test_data)))
+    for epoch in range(epochs):
+        lossTotal = 0
+        for i, (x,y) in enumerate(train_data):
+            output, loss = train(x,y,model,optimizer,criterion)
+            lossTotal += loss # add MSE -> sum of square errors 
+        loss_history = np.vstack([loss_history, lossTotal])
+        test_loss = test_modloss(model, test_data, hidden_size)
+        test_loss_history = np.vstack([test_loss_history, test_loss])
+
+    return loss_history, test_loss_history
+
+
 def test_acc(model, testdata, hidden_size, verbose = False):
     """ Args: model and test data 
         Returns: test accuracy """
@@ -322,6 +338,24 @@ def test_acc(model, testdata, hidden_size, verbose = False):
     if verbose:
         print('test accuracy: %f ' % (acc))
     return accs
+
+def test_modloss(model, testdata, criterion, hidden_size=20):
+    model.eval()
+    losses_testset = []
+    
+    for testset in testdata:
+        loss_set = 0
+        
+        for x,y in testset:
+            for i in range(len(x)):
+                hidden = torch.zeros(1, hidden_size)[0]
+                for step in x[i]:
+                    hidden, y_hat = model.get_activations(step,hidden)
+                loss_set += criterion(y_hat,y[i]).item()
+     
+        losses_testset.append(loss_set)
+        
+    return losses_testset
 
 def test_preds(model, testdata, hidden_size, suffix = ''):
     """ takes model and test data and returns a dataframe of:
@@ -510,16 +544,17 @@ def generate_other_reverse(op, inputs, cue_dict):
         seq.append(trial)
     return seq
 
-def generate_neg_trials(op, input_ids, init_values, cue_dict):
+def generate_neg_trials(ops, input_ids, init_values, cue_dict, steps = 1):
     
-    ''' function for generating all permutations of 1 step trials '''
+    ''' function for generating all permutations of n step trials '''
     
     seq = []
-    combi_inputcue = list(itertools.product(input_ids, repeat=1))
-    for init in init_values:
+    combi_inputcue = list(itertools.product(input_ids, repeat= steps))
+    combi_ops = list(itertools.product(ops, repeat= steps))
+    for init in input_ids:
         for cue in combi_inputcue:
             seq.append([('-',init),
-                        *zip(tuple(op), cue), '=']) #group per time point t
+                        *zip(combi_ops[0], cue), '=']) #group per time point t
     for s in seq:
         s.append(calculate_output(s, cue_dict))
     return seq
@@ -536,16 +571,17 @@ def generate_neg_other(op, inputs, cue_dict):
     return seq
 
 
-def generate_pos_trials(op, input_ids, init_values, cue_dict):
+def generate_pos_trials(ops, input_ids, init_values, cue_dict, steps = 1):
     
-    ''' function for generating all permutations of 1 step trials '''
+    ''' function for generating all permutations of n step trials '''
     
     seq = []
-    combi_inputcue = list(itertools.product(input_ids, repeat=1))
-    for init in init_values:
+    combi_inputcue = list(itertools.product(input_ids, repeat= steps))
+    combi_ops = list(itertools.product(ops, repeat= steps))
+    for init in input_ids:
         for cue in combi_inputcue:
             seq.append([('+',init),
-                        *zip(tuple(op), cue), '=']) #group per time point t
+                        *zip(combi_ops[0], cue), '=']) #group per time point t
     for s in seq:
         s.append(calculate_output(s, cue_dict))
     return seq
@@ -822,7 +858,7 @@ def calculate_RDMs(res1, testseq, num_classes=22, batchsize=1,hidden_size=20, su
 
     cue_dicts = res1['cue_dicts']
     ft_cue_dicts = [cue_dicts[j] for j in mod_list]
-
+    
     for ind, m in enumerate(mod_list): # for each model 
 
         testseqs = change_dict(testseq, cue_dicts[m])
@@ -1012,7 +1048,7 @@ def MDS_plot_3D(matlist, testseqs, trainseqs, MDStype = 'MDS', title = ''):
     plt.suptitle('2D-'+MDStype+': '+title)
     fig.legend(handles=legend_elements,  loc='center left', bbox_to_anchor=(1, 0.5)) 
     
-def MDS_plot_prims(meanRDM, testseqs, MDStype = 'MDS', title = '', min_dim = 0, step_num = 3, plotlines=True, rand_state=0):
+def MDS_plot_prims(meanRDM, testseqs, MDStype = 'MDS', title = '', plotlines=True, rand_state=0):
     
     plt.rcParams['figure.figsize'] = 6, 6
     fig, ax = plt.subplots()
