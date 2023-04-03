@@ -29,7 +29,9 @@ from sklearn.decomposition import PCA
 ######################
 
 bp_colors = ['#00A7E1', '#F17720']
-bp_pal = {'Balanced': '#00A7E1', 'Primitives':'#F17720'}
+bp_colors_dark = ['#003D70', '##AE4F0A']
+
+bp_pal = {'Balanced': '#00A7E1', 'Primitive':'#F17720'}
 
 
 ######################
@@ -835,7 +837,7 @@ def calculate_RDMs_old(res, testseq, fully_trained = True):
 
 #     return {'rdms': rdms, 'rdms_p': rdms_p, 'rdms_b': rdms_b, 'rdms_bp': rdms_bp, 'ft_cue_dicts': ft_cue_dicts}
 
-def calculate_RDMs(res1, testseq, num_classes=22, batchsize=1,hidden_size=10, Tmax=4):
+def calculate_RDMs(res1, testseq, num_classes=22, batchsize=1,hidden_size=20, Tmax=4):
     
     # initialise empty lists/arrays
     rdms_p = [[] for _ in range(Tmax)]
@@ -951,8 +953,7 @@ legend_elements = [Line2D([0], [0], marker=6, color='w', markerfacecolor =ca, ma
                    Line2D([0], [0], marker=7, color='w', markerfacecolor=ca, markersize=msize, label=' _ + A'),
                    Line2D([0], [0], marker=7, color='w', markerfacecolor=cb, markersize=msize, label=' _ + B'), 
                    Line2D([0], [0], marker=7, color='w', markerfacecolor=cc, markersize=msize, label=' _ + C'),
-                   Line2D([0], [0], marker=7, color='w', markerfacecolor=cd, markersize=msize, label=' _ + D'),
-                   Line2D([0], [0], marker='_', color='black', markersize=10, label='primitive')
+                   Line2D([0], [0], marker=7, color='w', markerfacecolor=cd, markersize=msize, label=' _ + D')
                    ]
 
 
