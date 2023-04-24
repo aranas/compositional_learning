@@ -447,15 +447,15 @@ class OneStepRNN(nn.Module):
         self.hidden_size = hidden_size
         self.xavier_gain = xavier_gain
         # Define the layers
-        self.input2hidden = nn.Linear(input_size + self.hidden_size, self.hidden_size)
-        self.fc1tooutput = nn.Linear(self.hidden_size, output_size)
+        self.layers = nn.ModuleList()
+        self.layers.append(nn.Linear(input_size + self.hidden_size, self.hidden_size))
+        self.layers.append(nn.Linear(self.hidden_size, output_size))
         self.initialize_weights()
-        
+
     def forward(self, x, hidden):
         combined = torch.cat((x, hidden), dim=0) ## dim = 1??
-        self.hidden = nn.functional.relu(self.input2hidden(combined))
-        self.output = self.fc1tooutput(self.hidden)
-        #return self.output.view(-1,output_size), self.hidden
+        self.hidden = nn.functional.relu(self.layers[0](combined))
+        self.output = self.layers[1](self.hidden)
         return self.output, self.hidden
 
     def get_activations(self, x, hidden):

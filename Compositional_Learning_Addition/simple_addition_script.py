@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
-import pickle
+import torch.multiprocessing as mp
 import random
 import time
 from joblib import Parallel, delayed
@@ -90,7 +90,7 @@ def plot_loss(loss_arrays, title='', labels=['train', 'test1', 'test2'],  colors
     fig.suptitle(title, fontsize=10)
     plt.savefig('figures/loss_'+title+'.png')
 
-def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hidden_size, verbose = False):
+def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hidden_size, device, verbose = False):
     
     loss_history = np.empty((0,1))
     train_loss = np.empty((0,1))
@@ -104,7 +104,10 @@ def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hid
             seqs = seqs.unsqueeze(0)
             if len(label) == 1:
                 label = label[0]
+                
             #train
+            seqs = seqs.to(device)
+            label = label.to(device)
             output, loss = train(seqs,label,model,optimizer,criterion)
             lossTotal += loss # add MSE -> sum of square errors 
         loss_history = np.vstack([loss_history, lossTotal])
@@ -122,30 +125,31 @@ def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hid
 
     return best_model, final_model, loss_history, train_loss, test_loss 
 
-def run_exp(trainset_b, trainset_p, testset, cue_dict, config_model, config_train, seed):
+def run_exp(trainset_b, trainset_p, testset, cue_dict, config_model, config_train, seed, device):
     ## Generate input
     num_classes = 22
     num_inputs  = 4
     batchsize   = 1
-    trainseqs_b, trainseqs_p, testseqs, cue_dict = generate_sequence_data(num_inputs,num_classes,batchsize)
-
+    trainset_b, trainset_p, testset, cue_dict = generate_sequence_data(num_inputs,num_classes,batchsize)
 
     torch.manual_seed(seed)
     # Initiate RNNs
     model_b = OneStepRNN(config_model['input_size'], config_model['output_size'], 
                         config_model['hidden_size'], config_model['num_layers'], config_model['xavier_gain'])
     model_p = copy.deepcopy(model_b)
+    model_p.to(device)
+    model_b.to(device)
     
     criterion = nn.MSELoss()   
     optimizer = torch.optim.Adam(model_b.parameters(), lr=config_train['learningRate'])
     best_mod_b, final_mod_b, loss_b, train_loss_b, test_loss_b = run_loss(model_b,optimizer,criterion, 
                                  trainset_b, [trainset_b, testset], 
-                                 config_train['epochs'], config_model['hidden_size'])
+                                 config_train['epochs'], config_model['hidden_size'], device)
     
     optimizer = torch.optim.Adam(model_p.parameters(), lr=config_train['learningRate'])
     best_mod_p, final_mod_p, loss_p, train_loss_p, test_loss_p = run_loss(model_p,optimizer,criterion, 
                                  trainset_p, [trainset_b, testset], 
-                                 config_train['epochs'], config_model['hidden_size'])
+                                 config_train['epochs'], config_model['hidden_size'], device)
     
     return {'cue_dict':cue_dict,'test': testset,\
            'loss_b':loss_b, 'train_loss_b':train_loss_b, 'test_loss_b':test_loss_b, 'final_mod_b': final_mod_b, 'best_mod_b': best_mod_b,\
@@ -224,7 +228,21 @@ def extract_ft(res1):
     
     return {'mods_b':mods_b, 'mods_p':mods_p, 'cue_dicts': cue_dicts}
 
+def set_device():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device != "cuda":
+        print("GPU is not enabled")
+        num_processes = mp.cpu_count()
+        print("Number of CPUs: ", num_processes)
+    else:
+        print("GPU is enabled")
+
+    return device
+
 def main():
+    
+    # Set Device function (to GPU)
+    device = set_device()
 
     ## Generate input
     num_classes = 22
@@ -255,7 +273,7 @@ def main():
     #run_exp(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train,1) 
 
     t1 = time.time()
-    res  = Parallel(n_jobs = -1)(delayed(run_exp)(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train,seed) 
+    res  = Parallel(n_jobs = -1)(delayed(run_exp)(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train, seed, device) 
                                  for seed in tqdm(random_seeds))
     t2 = time.time()
     print('run time: ', (t2-t1)/60)
