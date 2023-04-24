@@ -90,10 +90,12 @@ def plot_loss(loss_arrays, title='', labels=['train', 'test1', 'test2'],  colors
     fig.suptitle(title, fontsize=10)
     plt.savefig('figures/loss_'+title+'.png')
 
-def run_loss(model,optimizer,criterion, train_data, test_data, epochs, hidden_size, verbose = False):
+def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hidden_size, verbose = False):
     
     loss_history = np.empty((0,1))
-    test_loss_history = np.empty((0,len(test_data)))
+    train_loss = np.empty((0,1))
+    test_loss = np.empty((0,1))
+ 
     for epoch in range(epochs):
         lossTotal = 0
         for i, (seqs,label) in enumerate(train_data):
@@ -106,13 +108,17 @@ def run_loss(model,optimizer,criterion, train_data, test_data, epochs, hidden_si
             output, loss = train(seqs,label,model,optimizer,criterion)
             lossTotal += loss # add MSE -> sum of square errors 
         loss_history = np.vstack([loss_history, lossTotal])
-        test_loss = test(model, test_data, criterion, hidden_size)
-        test_loss_history = np.vstack([test_loss_history, test_loss])
 
-    return loss_history, test_loss_history
+        lossTrain = test(model, validation_data[0], criterion, hidden_size)
+        train_loss = np.vstack([train_loss,lossTrain])
+        lossTest = test(model, validation_data[1], criterion, hidden_size)
+        test_loss = np.vstack([test_loss, lossTest])
 
-def run_exp(trainset_b, trainset_p, testset, cue_dict, config_model, config_train):
+    return loss_history, train_loss, test_loss 
 
+def run_exp(trainset_b, trainset_p, testset, cue_dict, config_model, config_train, seed):
+
+    torch.manual_seed(seed)
     # Initiate RNNs
     model_b = OneStepRNN(config_model['input_size'], config_model['output_size'], 
                         config_model['hidden_size'], config_model['num_layers'], config_model['xavier_gain'])
@@ -120,35 +126,30 @@ def run_exp(trainset_b, trainset_p, testset, cue_dict, config_model, config_trai
     
     criterion = nn.MSELoss()   
     optimizer = torch.optim.Adam(model_b.parameters(), lr=config_train['learningRate'])
-    loss_b, test_loss_b = run_loss(model_b,optimizer,criterion, 
+    loss_b, train_loss_b, test_loss_b = run_loss(model_b,optimizer,criterion, 
                                  trainset_b, [trainset_b, testset], 
                                  config_train['epochs'], config_model['hidden_size'])
     
     optimizer = torch.optim.Adam(model_p.parameters(), lr=config_train['learningRate'])
-    loss_p, test_loss_p = run_loss(model_p,optimizer,criterion, 
+    loss_p, train_loss_p, test_loss_p = run_loss(model_p,optimizer,criterion, 
                                  trainset_p, [trainset_b, testset], 
                                  config_train['epochs'], config_model['hidden_size'])
     
     return {'cue_dict':cue_dict,'test': testset,\
-           'loss_b':loss_b, 'test_loss_b':test_loss_b, 'mod_b': model_b,\
-           'loss_p':loss_p, 'test_loss_p':test_loss_p, 'mod_p': model_p}
+           'loss_b':loss_b, 'train_loss_b':train_loss_b, 'test_loss_b':test_loss_b, 'mod_b': model_b,\
+           'loss_p':loss_p, 'train_loss_p':train_loss_p, 'test_loss_p':test_loss_p, 'mod_p': model_p}
 
 def test(model, testdata, criterion, hidden_size=20):
     model.eval()
-    losses_testset = []
-    
-    for t in testdata:
-        loss_set = 0
-        for x,y in t:
-            for i in range(len(x)):
-                hidden = torch.zeros(1, hidden_size)[0]
-                for step in x[i]:
-                    hidden, y_hat = model.get_activations(step,hidden)
-                loss_set += criterion(y_hat, torch.tensor([y[i].item()])).item()
-     
-        losses_testset.append(loss_set)
-        
-    return losses_testset
+    loss_set = 0
+    for x,y in testdata:
+        for i in range(len(x)):
+            hidden = torch.zeros(1, hidden_size)[0]
+            for step in x[i]:
+                hidden, y_hat = model.get_activations(step,hidden)
+            loss_set += criterion(y_hat, torch.tensor([y[i].item()])).item()
+            
+    return loss_set
 
 def test_preds(model, testdata, hidden_size, suffix = ''):
     """ takes model and test data and returns a dataframe of:
@@ -227,46 +228,44 @@ def main():
     config_train = {}
     config_train['batchsize']   = batchsize
     config_train['learningRate']= 0.005
-    config_train['epochs']      = 1000
-    config_train['num_sims']    = 5
+    config_train['epochs']      = 500
+    config_train['num_sims']    = 18
 
-    run_exp(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train)
+    random.seed(1234)
+    random_seeds = random.sample([i for i in range(100)], config_train['num_sims'])
+
+    #run_exp(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train,1) 
 
     t1 = time.time()
-    res  = Parallel(n_jobs = -1)(delayed(run_exp)(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train) for i in tqdm(range(config_train['num_sims'])))
+    res  = Parallel(n_jobs = -1)(delayed(run_exp)(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train,seed) 
+                                 for seed in tqdm(random_seeds))
     t2 = time.time()
     print('run time: ', (t2-t1)/60)
     
-    ## unpack trained models
-    tests = [r['test'] for r in res]
-    cue_dicts = [r['cue_dict'] for r in res]  
-    losses_b = np.hstack([r['loss_b'] for r in res])
-    train_losses_b = np.array([r['test_loss_b'][:,0] for r in res]).T
-    test_losses_b = np.array([r['test_loss_b'][:,1] for r in res]).T
-    losses_p = np.hstack([r['loss_p'] for r in res])
-    train_losses_p = np.array([r['test_loss_p'][:,0] for r in res]).T
-    test_losses_p = np.array([r['test_loss_p'][:,1] for r in res]).T
-    print(losses_b[-1,:].shape)
-    print(np.array(test_losses_b).shape)
-    print('balanced loss', losses_b[-1,:].mean())
-    print('primitives loss', losses_p[-1,:].mean())
-
-    plot_loss([losses_b, train_losses_b, test_losses_b],labels=['train', 'test-train', 'test'], colors = ['green', 'orange', 'red'], title = 'balanced -no primitives')
-    plot_loss([losses_p, train_losses_p, test_losses_p],labels=['train', 'test-train',  'test'], colors = ['green', 'orange', 'red'], title = 'with primitives')
-
-    mods_b = [r['mod_b'] for r in res]
-    plot_predcorr(mods_b, tests, config_model, title = 'balanced -no primitives')
-    mods_p = [r['mod_p'] for r in res]
-    plot_predcorr(mods_p, tests, config_model, title = 'with primitives')
-   
+    # turn list of dicts into dict of lists
+    res = {k: [dic[k] for dic in res] for k in res[0]}
+    for key in res:
+        if isinstance(res[key][0],np.ndarray):
+            res[key] = np.stack(res[key])
+            #reshape
+            res[key] = res[key].squeeze().T
     
 
-    # select fully trained ones
-    acc_df = pd.DataFrame({'train_b': train_losses_b[-1,:],'train_p': train_losses_p[-1,:].reshape(-1),\
-                           'test_b': test_losses_b[-1,:],'test_p': test_losses_p[-1,:]})
-    res_2input_20 = {'mods_b':mods_b, 'mods_p':mods_p, 'losses_b_final': losses_b[-1,:], 'losses_p_final':losses_p[-1,:],\
-            'res':res, 'cue_dicts': cue_dicts, 'acc_df':acc_df }
+    print('balanced loss', res['loss_b'][-1,:].mean())
+    print('primitives loss', res['loss_p'][-1,:].mean())
 
+    plot_loss([res['loss_b'], res['train_loss_b'], res['test_loss_b']],labels=['train', 'test-train', 'test'], colors = ['green', 'orange', 'red'], title = 'balanced -no primitives')
+    plot_loss([res['loss_p'], res['train_loss_p'], res['test_loss_p']],labels=['train', 'test-train',  'test'], colors = ['green', 'orange', 'red'], title = 'with primitives')
+
+    plot_predcorr(res['mod_b'], res['test'], config_model, title = 'balanced -no primitives')
+    plot_predcorr(res['mod_p'], res['test'], config_model, title = 'with primitives')
+   
+    
+    # select fully trained ones
+    acc_df = pd.DataFrame({'train_b': res['train_loss_b'][-1,:],'train_p': res['train_loss_p'][-1,:].reshape(-1),\
+                           'test_b': res['test_loss_b'][-1,:],'test_p': res['test_loss_p'][-1,:]})
+    res_2input_20 = {'mods_b':res['mod_b'], 'mods_p':res['mod_p'], 'losses_b_final': res['loss_b'][-1,:], 'losses_p_final':res['loss_p'][-1,:],\
+            'res':res, 'cue_dicts': res['cue_dict'], 'acc_df':acc_df }
     accres2_20 = extract_ft(res_2input_20)
     
     ## Save models
