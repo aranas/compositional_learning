@@ -66,9 +66,9 @@ def generate_sequence_data(num_inputs,num_classes,batchsize,verbose=False):
 
         return trainset_b, trainset_p, testset, cue_dict
 
-def plot_predcorr(model,test_data, model_config,title):
+def plot_predcorr(config, model,test_data, model_config,title):
     plt.figure()
-    r2, _, _ = predcorr(model, test_data, model_config['hidden_size'], plot_corr =True)
+    r2, _, _ = predcorr(config, model, test_data, model_config['hidden_size'], plot_corr =True)
     plt.title(title + '; r^2 = '+ str(round(r2, 3)))
     plt.savefig('figures/predcorr_'+title+'.png')
 
@@ -95,7 +95,7 @@ def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hid
     loss_history = np.empty((0,1))
     train_loss = np.empty((0,1))
     test_loss = np.empty((0,1))
- 
+    min_loss = 100000
     for epoch in range(epochs):
         lossTotal = 0
         for i, (seqs,label) in enumerate(train_data):
@@ -114,9 +114,21 @@ def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hid
         lossTest = test(model, validation_data[1], criterion, hidden_size)
         test_loss = np.vstack([test_loss, lossTest])
 
-    return loss_history, train_loss, test_loss 
+        if lossTest < min_loss:
+            min_loss = lossTest
+            best_model = model.state_dict()
+
+    final_model = model.state_dict()
+
+    return best_model, final_model, loss_history, train_loss, test_loss 
 
 def run_exp(trainset_b, trainset_p, testset, cue_dict, config_model, config_train, seed):
+    ## Generate input
+    num_classes = 22
+    num_inputs  = 4
+    batchsize   = 1
+    trainseqs_b, trainseqs_p, testseqs, cue_dict = generate_sequence_data(num_inputs,num_classes,batchsize)
+
 
     torch.manual_seed(seed)
     # Initiate RNNs
@@ -126,18 +138,18 @@ def run_exp(trainset_b, trainset_p, testset, cue_dict, config_model, config_trai
     
     criterion = nn.MSELoss()   
     optimizer = torch.optim.Adam(model_b.parameters(), lr=config_train['learningRate'])
-    loss_b, train_loss_b, test_loss_b = run_loss(model_b,optimizer,criterion, 
+    best_mod_b, final_mod_b, loss_b, train_loss_b, test_loss_b = run_loss(model_b,optimizer,criterion, 
                                  trainset_b, [trainset_b, testset], 
                                  config_train['epochs'], config_model['hidden_size'])
     
     optimizer = torch.optim.Adam(model_p.parameters(), lr=config_train['learningRate'])
-    loss_p, train_loss_p, test_loss_p = run_loss(model_p,optimizer,criterion, 
+    best_mod_p, final_mod_p, loss_p, train_loss_p, test_loss_p = run_loss(model_p,optimizer,criterion, 
                                  trainset_p, [trainset_b, testset], 
                                  config_train['epochs'], config_model['hidden_size'])
     
     return {'cue_dict':cue_dict,'test': testset,\
-           'loss_b':loss_b, 'train_loss_b':train_loss_b, 'test_loss_b':test_loss_b, 'mod_b': model_b,\
-           'loss_p':loss_p, 'train_loss_p':train_loss_p, 'test_loss_p':test_loss_p, 'mod_p': model_p}
+           'loss_b':loss_b, 'train_loss_b':train_loss_b, 'test_loss_b':test_loss_b, 'final_mod_b': final_mod_b, 'best_mod_b': best_mod_b,\
+           'loss_p':loss_p, 'train_loss_p':train_loss_p, 'test_loss_p':test_loss_p, 'final_mod_p': final_mod_p, 'best_mod_p': best_mod_p}
 
 def test(model, testdata, criterion, hidden_size=20):
     model.eval()
@@ -175,10 +187,14 @@ def test_preds(model, testdata, hidden_size, suffix = ''):
     df = pd.DataFrame({'trial':trials, 'label'+suffix:labs, 'pred'+suffix: preds, 'acc'+suffix: accs})
     return df 
 
-def predcorr(mods, tests, hidden_size, plot_corr = True):
+def predcorr(mod_config, mod_dicts, tests, hidden_size, plot_corr = True):
     dfs1 = []
-    for i in range(len(mods)):
-        df = test_preds(mods[i], [tests[i]], hidden_size)
+    for i in range(len(mod_dicts)):
+        model = OneStepRNN(mod_config['input_size'], mod_config['output_size'], 
+                        mod_config['hidden_size'], mod_config['num_layers'], mod_config['xavier_gain'])
+        model.load_state_dict(mod_dicts[i])
+
+        df = test_preds(model, [tests[i]], hidden_size)
         dfs1.append(df)
     all_dfs1 = pd.concat(dfs1) 
     preds, labs = all_dfs1['pred'], all_dfs1['label']
@@ -199,6 +215,8 @@ def extract_ft(res1):
     
     acc_df = res1['acc_df']
     ft_idx = acc_df[(acc_df['train_b'] < 1) & (acc_df['train_p'] < 1)].index
+    #print length ft_idx
+    print('Number of models successfully trained: ' + str(len(ft_idx)))
     
     cue_dicts = [res1['cue_dicts'][i] for i in ft_idx]   
     mods_b = [res1['mods_b'][i] for i in ft_idx]
@@ -229,7 +247,7 @@ def main():
     config_train['batchsize']   = batchsize
     config_train['learningRate']= 0.005
     config_train['epochs']      = 500
-    config_train['num_sims']    = 18
+    config_train['num_sims']    = 100
 
     random.seed(1234)
     random_seeds = random.sample([i for i in range(100)], config_train['num_sims'])
@@ -257,21 +275,21 @@ def main():
     plot_loss([res['loss_b'], res['train_loss_b'], res['test_loss_b']],labels=['train', 'test-train', 'test'], colors = ['green', 'orange', 'red'], title = 'balanced -no primitives')
     plot_loss([res['loss_p'], res['train_loss_p'], res['test_loss_p']],labels=['train', 'test-train',  'test'], colors = ['green', 'orange', 'red'], title = 'with primitives')
 
-    plot_predcorr(res['mod_b'], res['test'], config_model, title = 'balanced -no primitives')
-    plot_predcorr(res['mod_p'], res['test'], config_model, title = 'with primitives')
+    plot_predcorr(config_model ,res['final_mod_b'], res['test'], config_model, title = 'final: balanced -no primitives')
+    plot_predcorr(config_model, res['final_mod_p'], res['test'], config_model, title = 'final: with primitives')
    
-    
+    plot_predcorr(config_model ,res['final_mod_b'], res['test'], config_model, title = 'best: balanced -no primitives')
+    plot_predcorr(config_model, res['final_mod_p'], res['test'], config_model, title = 'best: with primitives')
+
     # select fully trained ones
     acc_df = pd.DataFrame({'train_b': res['train_loss_b'][-1,:],'train_p': res['train_loss_p'][-1,:].reshape(-1),\
                            'test_b': res['test_loss_b'][-1,:],'test_p': res['test_loss_p'][-1,:]})
-    res_2input_20 = {'mods_b':res['mod_b'], 'mods_p':res['mod_p'], 'losses_b_final': res['loss_b'][-1,:], 'losses_p_final':res['loss_p'][-1,:],\
+    res_2input_20 = {'mods_b':res['final_mod_b'], 'mods_p':res['final_mod_p'], 'losses_b_final': res['loss_b'][-1,:], 'losses_p_final':res['loss_p'][-1,:],\
             'res':res, 'cue_dicts': res['cue_dict'], 'acc_df':acc_df }
     accres2_20 = extract_ft(res_2input_20)
     
     ## Save models
-    savedir = 'results/2seqs_res_20'
-    with open(savedir, 'wb') as f:
-        pickle.dump(accres2_20, f)
+    torch.save(accres2_20, 'results/2seqs_res_20_dictonly.pt')
 
 
 if __name__ == "__main__":
