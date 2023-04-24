@@ -259,6 +259,11 @@ class SequenceData(Dataset):
     def __getitem__(self, index):
         sequence = self.data[index].astype(np.float32)
         out_state = np.array(self.labels[index]).astype(np.float32)
+
+        #convert everything to tensor for more efficient processing on GPU
+        sequence = torch.from_numpy(sequence)
+        out_state = torch.from_numpy(out_state)
+
         return sequence, out_state
     
     
@@ -399,15 +404,45 @@ onehot_dict = {0:'X',
 #RNN
 ###################
 
+class simpleRNN(nn.Module):
+    def __init__(self, input_size, output_size, hidden_size, num_layers, xavier_gain=1.0):
+        super(simpleRNN, self).__init__()
+
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.xavier_gain = xavier_gain
+        self.input_size = input_size
+        
+        # recurrent layer
+        self.rnn = nn.RNN(input_size, hidden_size, num_layers, nonlinearity='relu')
+        # output layer
+        self.output_layer = nn.Linear(hidden_size, output_size)
+        
+        self.initialize_weights()
+
+    def forward(self, inputs):
+        output, hidden = self.rnn(inputs)
+        # output layer
+        output = self.output_layer(output[:, -1, :])[0][0]
+        # activation function
+        return output, hidden
+
+    def initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_normal_(m.weight, self.xavier_gain)
+
+    def init_hidden(self, batch_size):
+        # initialize hidden state
+        self.hidden = torch.zeros(self.num_layers, batch_size, self.hidden_size)
+        return self.hidden
+    
+
 class OneStepRNN(nn.Module):
 
     def __init__(self, input_size, output_size, hidden_size, num_layers, xavier_gain):
         super(OneStepRNN, self).__init__()
         # Define parameters
-        self.rnn = torch.nn.RNN(input_size=input_size,
-                        hidden_size=hidden_size,
-                        num_layers= num_layers,
-                        batch_first=True)
         self.num_layers = num_layers
         self.hidden_size = hidden_size
         self.xavier_gain = xavier_gain
@@ -430,35 +465,40 @@ class OneStepRNN(nn.Module):
     def get_noise(self):
         return self.hidden_noise
 
-    def initHidden(self):
-        return torch.zeros(1, self.hidden_size)[0]
+    def init_hidden(self,batch_size=1):
+        return torch.zeros(batch_size, self.hidden_size)[0]
     
     def initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.xavier_normal_(m.weight, self.xavier_gain)
 
-
-
 def train(sequence, label ,model ,optimizer ,criterion):
     model.train()
     optimizer.zero_grad()
-    #Read each cue in and keep hidden state for next cue
-    hidden = model.initHidden()
-    batch_out = []
-    for batchseq in sequence:
-        for i in range(len(batchseq)):
-            output, hidden = model.forward(batchseq[i], hidden)
-        batch_out.append(output)
+    loss = 0
+    for seq,l in zip(sequence,[label]):
+        #Read each cue in and keep hidden state for next cue
+        hidden = model.init_hidden(1)
+        #loop through sequence
+        #to ignore padding, loop until cue '=' is seen (assumed that final input unit marks this event)
+        await_cue = True
+        step = 0
+        while await_cue:
+            output, hidden = model.forward(seq[step], hidden)
+            if seq[step][-1] == 1:
+                await_cue = False
+            step +=1
         #Compare final output to target
-    batch_out = torch.cat(batch_out)
-    loss = criterion(batch_out,label)#.long())
-
+        if loss == 0:
+            loss = criterion(output,torch.tensor([l]))
+        else:
+            loss += (criterion(output,torch.tensor([l])))
     #Back-propagate
     loss.backward()
     optimizer.step()
 
-    return batch_out, loss.item()
+    return output, loss.item()
 
 def run_acc(model,optimizer,criterion, train_data, test_data, epochs, hidden_size, verbose = False):
     
@@ -597,7 +637,7 @@ def change_dict(seqs, new_dict):
 def predcorr(mods, tests, hidden_size, plot_corr = True):
     dfs1 = []
     for i in range(len(mods)):
-        df = test_preds(mods[i], [tests[i]], hidden_size)
+        df = test(mods[i], [tests[i]], hidden_size)
         dfs1.append(df)
     all_dfs1 = pd.concat(dfs1) 
     preds, labs = all_dfs1['pred'], all_dfs1['label']
