@@ -177,7 +177,7 @@ def test_preds(model, testdata, hidden_size, suffix = ''):
 def predcorr(mods, tests, hidden_size, plot_corr = True):
     dfs1 = []
     for i in range(len(mods)):
-        df = test_preds_one_step(mods[i], [tests[i]], hidden_size)
+        df = test_preds(mods[i], [tests[i]], hidden_size)
         dfs1.append(df)
     all_dfs1 = pd.concat(dfs1) 
     preds, labs = all_dfs1['pred'], all_dfs1['label']
