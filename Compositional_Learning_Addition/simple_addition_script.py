@@ -1,4 +1,5 @@
 # %%
+import pdb
 import copy
 import numpy as np
 import matplotlib.pyplot as plt
@@ -108,13 +109,13 @@ def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hid
             #train
             seqs = seqs.to(device)
             label = label.to(device)
-            output, loss = train(seqs,label,model,optimizer,criterion)
+            output, loss = train(seqs,label,model,optimizer,criterion,device)
             lossTotal += loss # add MSE -> sum of square errors 
         loss_history = np.vstack([loss_history, lossTotal])
 
-        lossTrain = test(model, validation_data[0], criterion, hidden_size)
+        lossTrain = test(model, validation_data[0], criterion, device, hidden_size)
         train_loss = np.vstack([train_loss,lossTrain])
-        lossTest = test(model, validation_data[1], criterion, hidden_size)
+        lossTest = test(model, validation_data[1], criterion, device, hidden_size)
         test_loss = np.vstack([test_loss, lossTest])
 
         if lossTest < min_loss:
@@ -155,15 +156,18 @@ def run_exp(trainset_b, trainset_p, testset, cue_dict, config_model, config_trai
            'loss_b':loss_b, 'train_loss_b':train_loss_b, 'test_loss_b':test_loss_b, 'final_mod_b': final_mod_b, 'best_mod_b': best_mod_b,\
            'loss_p':loss_p, 'train_loss_p':train_loss_p, 'test_loss_p':test_loss_p, 'final_mod_p': final_mod_p, 'best_mod_p': best_mod_p}
 
-def test(model, testdata, criterion, hidden_size=20):
+def test(model, testdata, criterion, device, hidden_size=20):
     model.eval()
     loss_set = 0
     for x,y in testdata:
+        x = x.to(device)
         for i in range(len(x)):
-            hidden = torch.zeros(1, hidden_size)[0]
+            hidden = torch.zeros(1, hidden_size)[0].to(device)
             for step in x[i]:
+                y = torch.tensor([y[i].item()]).to(device)
+                hidden = hidden.to(device)
                 hidden, y_hat = model.get_activations(step,hidden)
-            loss_set += criterion(y_hat, torch.tensor([y[i].item()])).item()
+            loss_set += criterion(y_hat, y).item()
             
     return loss_set
 
@@ -265,12 +269,12 @@ def main():
     config_train['batchsize']   = batchsize
     config_train['learningRate']= 0.005
     config_train['epochs']      = 500
-    config_train['num_sims']    = 100
+    config_train['num_sims']    = 10
 
     random.seed(1234)
     random_seeds = random.sample([i for i in range(100)], config_train['num_sims'])
 
-    #run_exp(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train,1) 
+    #run_exp(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train,1)     
 
     t1 = time.time()
     res  = Parallel(n_jobs = -1)(delayed(run_exp)(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train, seed, device) 
