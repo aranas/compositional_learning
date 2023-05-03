@@ -9,7 +9,9 @@ import torch.nn as nn
 import torch.multiprocessing as mp
 import random
 import time
+
 from joblib import Parallel, delayed
+
 import pandas as pd
 from tqdm import tqdm
 from torch.nn.utils.rnn import pad_sequence
@@ -131,9 +133,9 @@ def run_exp(trainset_b, trainset_p, testset, cue_dict, config_model, config_trai
     num_classes = 22
     num_inputs  = 4
     batchsize   = 1
+    torch.manual_seed(seed)
     trainset_b, trainset_p, testset, cue_dict = generate_sequence_data(num_inputs,num_classes,batchsize)
 
-    torch.manual_seed(seed)
     # Initiate RNNs
     model_b = OneStepRNN(config_model['input_size'], config_model['output_size'], 
                         config_model['hidden_size'], config_model['num_layers'], config_model['xavier_gain'])
@@ -272,15 +274,14 @@ def main():
     config_train['num_sims']    = 10
 
     random.seed(1234)
-    random_seeds = random.sample([i for i in range(100)], config_train['num_sims'])
+    random_seeds = random.sample([i for i in range(config_train['num_sims'])], config_train['num_sims'])
 
-    #run_exp(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train,1)     
-
-    t1 = time.time()
-    res  = Parallel(n_jobs = -1)(delayed(run_exp)(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train, seed, device) 
-                                 for seed in tqdm(random_seeds))
-    t2 = time.time()
-    print('run time: ', (t2-t1)/60)
+    run_exp(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train,1)     
+    #t1 = time.time()
+    #res  = Parallel(n_jobs = -1, backend="multiprocessing")(delayed(run_exp)(trainseqs_b, trainseqs_p,testseqs, cue_dict, config_model, config_train, seed, device) 
+    #                             for seed in tqdm(random_seeds))
+    #t2 = time.time()
+    #print('run time: ', (t2-t1)/60)
     
     # turn list of dicts into dict of lists
     res = {k: [dic[k] for dic in res] for k in res[0]}
@@ -312,7 +313,6 @@ def main():
     
     ## Save models
     torch.save(accres2_20, 'results/2seqs_res_20_dictonly.pt')
-
 
 if __name__ == "__main__":
     main()
