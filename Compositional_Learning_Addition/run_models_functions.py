@@ -27,7 +27,7 @@ def generate_sequence_data(num_inputs,num_classes,batchsize,verbose=False):
         
         all_syms = total_syms[:num_inputs]
         all_input_vals = list(np.arange(2,18))
-        input_vals = random.sample(all_input_vals,num_inputs)
+        input_vals = sorted(random.sample(all_input_vals,num_inputs))
         
         # randomly select values for each input
         cue_dict = {}
@@ -52,6 +52,7 @@ def generate_sequence_data(num_inputs,num_classes,batchsize,verbose=False):
 
         # load data for primitive training
         train_inputs = convert_seq2inputs(trainseqs_b, num_classes=num_classes, seq_len=5)
+
         trainset_b = DataLoader(train_inputs, batch_size=batchsize, shuffle=True, collate_fn=collate_fn)
 
         train_inputs = convert_seq2inputs(trainseqs_p, num_classes=num_classes, seq_len=5)
@@ -91,7 +92,7 @@ def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hid
 
         if lossTest < min_loss:
             min_loss = lossTest
-            best_model = model.state_dict()
+            best_model = model.state_dict().copy()
 
     final_model = model.state_dict()
 
@@ -100,7 +101,7 @@ def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hid
 def run_exp(config_model, config_train, seed, device):
     ## Generate input
     num_classes = 22
-    num_inputs  = 4
+    num_inputs  = 8
     batchsize   = 1
     torch.manual_seed(seed)
     trainset_b, trainset_p, testset, cue_dict = generate_sequence_data(num_inputs,num_classes,batchsize)
@@ -109,6 +110,8 @@ def run_exp(config_model, config_train, seed, device):
     model_b = OneStepRNN(config_model['input_size'], config_model['output_size'], 
                         config_model['hidden_size'], config_model['num_layers'], config_model['xavier_gain'])
     model_p = copy.deepcopy(model_b)
+    init_mod_b = copy.deepcopy(model_b.state_dict())
+    init_mod_p = copy.deepcopy(model_p.state_dict())
     model_p.to(device)
     model_b.to(device)
     
@@ -117,13 +120,14 @@ def run_exp(config_model, config_train, seed, device):
     best_mod_b, final_mod_b, loss_b, train_loss_b, test_loss_b = run_loss(model_b,optimizer,criterion, 
                                  trainset_b, [trainset_b, testset], 
                                  config_train['epochs'], config_model['hidden_size'], device)
-    
+
     optimizer = torch.optim.Adam(model_p.parameters(), lr=config_train['learningRate'])
     best_mod_p, final_mod_p, loss_p, train_loss_p, test_loss_p = run_loss(model_p,optimizer,criterion, 
                                  trainset_p, [trainset_b, testset], 
                                  config_train['epochs'], config_model['hidden_size'], device)
     
     return {'cue_dict':cue_dict,'test': testset,\
+            'init_mod_p':init_mod_p, 'init_mod_b':init_mod_b,\
            'loss_b':loss_b, 'train_loss_b':train_loss_b, 'test_loss_b':test_loss_b, 'final_mod_b': final_mod_b, 'best_mod_b': best_mod_b,\
            'loss_p':loss_p, 'train_loss_p':train_loss_p, 'test_loss_p':test_loss_p, 'final_mod_p': final_mod_p, 'best_mod_p': best_mod_p}
 

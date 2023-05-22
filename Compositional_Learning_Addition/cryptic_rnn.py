@@ -437,7 +437,6 @@ class simpleRNN(nn.Module):
         self.hidden = torch.zeros(self.num_layers, batch_size, self.hidden_size)
         return self.hidden
     
-
 class OneStepRNN(nn.Module):
 
     def __init__(self, input_size, output_size, hidden_size, num_layers, xavier_gain):
