@@ -69,15 +69,11 @@ def main():
     config_train = {}
     config_train['batchsize']   = batchsize
     config_train['learningRate']= 0.005
-    config_train['epochs']      = 1500
+    config_train['epochs']      = 2000
     config_train['num_sims']    = 10
 
     random.seed(1234)
     random_seeds = random.sample([i for i in range(config_train['num_sims'])], config_train['num_sims'])
-    t1 = time.time()
-    res = [run_exp(config_model, config_train,1,device)]     
-    t2 = time.time()
-    print('run time: ', (t2-t1)/60)
     t1 = time.time()
     model_list = []
     ctx = mp.get_context('spawn')
@@ -88,7 +84,7 @@ def main():
         results =[res.get() for res in multiple_results]
     t2 = time.time()
     print('run time: ', (t2-t1)/60)
-    
+
     res = results
     # turn list of dicts into dict of lists
     res = {k: [dic[k] for dic in res] for k in res[0]}
@@ -101,9 +97,10 @@ def main():
     print('balanced loss', res['loss_b'][-1,:].mean())
     print('primitives loss', res['loss_p'][-1,:].mean())
 
-    keys_model_param = ['best_mod_p', 'best_mod_b', 'final_mod_b', 'final_mod_p', 'init_mod_b', 'init_mod_p', 'cue_dict','test']
+    keys_model_param = ['best_mod_p', 'best_mod_b', 'final_mod_b', 'final_mod_p', 'init_mod_b', 'init_mod_p', 'cue_dict','test', 'train_b','train_p']
     keys_loss = ['loss_b', 'loss_p', 'train_loss_b', 'train_loss_p', 'test_loss_b', 'test_loss_p']
     d_models = {k: v for k, v in res.items() if k in keys_model_param}
+    d_models['config_model'] = config_model
     d_losses = {k: v for k, v in res.items() if k in keys_loss}
 
     data = xr.DataArray(np.stack([d_losses[k] for k in d_losses.keys()]), dims=('loss_type','epoch','sim'), coords={'loss_type': list(d_losses.keys())})
@@ -119,8 +116,8 @@ def main():
     plot_predcorr(config_model, d_models['best_mod_p'], d_models['test'], config_model, title = 'best: with primitives')
     
     ## Save models & loss
-    torch.save(d_models, 'results/2seqs_res_20_modelonly.pt')
-    with open('results/2seqs_res_20_losses.pkl', 'wb') as f:
+    torch.save(d_models, 'results/2seqs_res_1_modelonly.pt')
+    with open('results/2seqs_res_1_losses.pkl', 'wb') as f:
         pickle.dump(data, f)
 if __name__ == "__main__":
     main()

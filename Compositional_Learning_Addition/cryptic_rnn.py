@@ -452,7 +452,7 @@ class OneStepRNN(nn.Module):
 
     def forward(self, x, hidden):
         combined = torch.cat((x, hidden), dim=0) ## dim = 1??
-        self.hidden = nn.functional.relu(self.input2hidden(combined))
+        self.hidden = self.input2hidden(combined)
         self.output = self.fc1tooutput(self.hidden)
         return self.output, self.hidden
 

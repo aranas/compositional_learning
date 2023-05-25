@@ -101,7 +101,7 @@ def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hid
 def run_exp(config_model, config_train, seed, device):
     ## Generate input
     num_classes = 22
-    num_inputs  = 8
+    num_inputs  = 4
     batchsize   = 1
     torch.manual_seed(seed)
     trainset_b, trainset_p, testset, cue_dict = generate_sequence_data(num_inputs,num_classes,batchsize)
@@ -126,7 +126,7 @@ def run_exp(config_model, config_train, seed, device):
                                  trainset_p, [trainset_b, testset], 
                                  config_train['epochs'], config_model['hidden_size'], device)
     
-    return {'cue_dict':cue_dict,'test': testset,\
+    return {'cue_dict':cue_dict,'test': testset, 'train_b': trainset_b, 'train_p': trainset_p,\
             'init_mod_p':init_mod_p, 'init_mod_b':init_mod_b,\
            'loss_b':loss_b, 'train_loss_b':train_loss_b, 'test_loss_b':test_loss_b, 'final_mod_b': final_mod_b, 'best_mod_b': best_mod_b,\
            'loss_p':loss_p, 'train_loss_p':train_loss_p, 'test_loss_p':test_loss_p, 'final_mod_p': final_mod_p, 'best_mod_p': best_mod_p}
