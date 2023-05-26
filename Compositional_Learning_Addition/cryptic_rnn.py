@@ -252,7 +252,18 @@ class SequenceData(Dataset):
             self.labels = labels
         else:
             self.labels = convert_outs2labels(labels)
-            
+    
+    def recompute_label(self, new_cue_dict):
+        
+        for i,trial in enumerate(self.data):
+            tmpseq = onehot2seq([trial])
+            #wrap every two entries in tmpseq in tuple
+            tmpseq = [tuple(tmpseq[j:j+2]) for j in range(0, len(tmpseq)-1, 2)] + ['=']
+            new_label = calculate_output(tmpseq, new_cue_dict)
+            # replace second item in tuple in datset[i] with new label
+            self.labels[i] = new_label
+        
+
     def __len__(self):
         return len(self.data)
 
