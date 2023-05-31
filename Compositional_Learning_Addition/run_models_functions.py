@@ -27,7 +27,8 @@ def generate_sequence_data(num_inputs,num_classes,batchsize,verbose=False):
         
         all_syms = total_syms[:num_inputs]
         all_input_vals = list(np.arange(2,18))
-        input_vals = sorted(random.sample(all_input_vals,num_inputs))
+        input_vals = random.sample(all_input_vals,num_inputs)
+        #input_vals = [sorted(input_vals)[i] for i in [0,2,3,1]] # used for 'trainlarge' meaning the base sequences used for training contained the largest values (to map out the max range of valid responses)
         
         # randomly select values for each input
         cue_dict = {}
