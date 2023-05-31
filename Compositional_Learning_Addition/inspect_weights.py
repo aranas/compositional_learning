@@ -35,6 +35,8 @@ corr_b = []
 for i in range(weights_p.shape[0]):
     corr_p.append(np.corrcoef(weights_p.squeeze()[i,:], inputs[i,:])[0,1])
     corr_b.append(np.corrcoef(weights_b.squeeze()[i,:], inputs[i,:])[0,1])
+corr_b = np.abs(corr_b)
+corr_p = np.abs(corr_p)
 
 
 print('primitive model weights (mean): ' + str(np.mean(np.abs(corr_p))))
@@ -46,21 +48,18 @@ print('balanced model weights: (std)' + str(np.std(np.abs(corr_b))))
 plt.figure(figsize=(10,5))
 #plt.scatter(np.abs(corr_p), data.sel(loss_type='test_loss_p',  epoch=n_epochs-1).to_numpy()
 #            , color='blue', label='primitive')
-plt.scatter(np.abs(corr_b), data.sel(loss_type='test_loss_b',  epoch=n_epochs-1).to_numpy()
+test_loss = data.sel(loss_type='test_loss_b',  epoch=n_epochs-1).to_numpy()
+# remove most extreme outliers based on 2 std from corr_b
+test_loss = test_loss[np.abs(corr_b) < (np.mean(corr_b) + np.std(corr_b))]
+corr_b = corr_b[np.abs(corr_b) < np.mean(np.abs(corr_b)) + np.std(np.abs(corr_b))]
+
+plt.scatter(corr_b, test_loss
             , color='red', label='balanced')
 # add regression line through scatterplot
 # get dimensions
 n_loss, n_epochs, n_sim = data.shape
-# select those with train loss of epoch lower than 1
-sel = data.sel(loss_type=['test_loss_b'], epoch=n_epochs-1) < 600
-sel_c = np.abs(corr_b) > 0.5
-# get indices of those that are true for both losses
-sel = sel.all(dim='loss_type')
-# select data test_loss_b for simulations using mask sel
-dat_sel = data.sel(loss_type='test_loss_b', epoch=n_epochs-1).where(sel).to_numpy()
-#drop nan from array
-dat_sel = dat_sel[~np.isnan(dat_sel)]
-plt.plot(np.unique(np.abs(corr_b)), np.poly1d(np.polyfit(np.abs(np.array(corr_b)[sel]), dat_sel, 1))(np.unique(np.abs(corr_b))), color='blue')
+
+plt.plot(np.unique(corr_b), np.poly1d(np.polyfit(corr_b, test_loss, 1))(np.unique(corr_b)), color='blue')
 plt.xlabel('correlation between weights and input values')
 plt.ylabel('testing loss')
 plt.legend()
