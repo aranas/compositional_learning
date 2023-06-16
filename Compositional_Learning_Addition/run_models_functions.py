@@ -21,7 +21,7 @@ def collate_fn(batch):
     
     return padded_sequences, out_states
 
-def generate_sequence_data(num_inputs,num_classes,batchsize,verbose=False):
+def generate_sequence_data(num_inputs,num_classes,batchsize, n_train_seq=2, verbose=False):
         ops = '+'
         total_syms = ['A','B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
         
@@ -36,7 +36,7 @@ def generate_sequence_data(num_inputs,num_classes,batchsize,verbose=False):
             cue_dict[s] = input_vals[i]
         
         primitives = generate_pos_primitives(all_syms, cue_dict)
-        trainseqs = generate_pos_other(ops, all_syms, cue_dict)[:2]
+        trainseqs = generate_pos_other(ops, all_syms, cue_dict)[:n_train_seq]
         trainseqs_b = trainseqs + generate_balanced_primitives(ops, all_syms, cue_dict)
         trainseqs_p = trainseqs + primitives
 
@@ -70,7 +70,7 @@ def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hid
     train_loss = np.empty((0,1))
     test_loss = np.empty((0,1))
     min_loss = 100000
-    for epoch in range(epochs):
+    for _ in range(epochs):
         lossTotal = 0
         for i, (seqs,label) in enumerate(train_data):
             #undo padding by removing all inner lists that contain only zeros
@@ -78,7 +78,7 @@ def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hid
             seqs = seqs.unsqueeze(0)
             if len(label) == 1:
                 label = label[0]
-                
+
             #train
             seqs = seqs.to(device)
             label = label.to(device)
@@ -99,13 +99,13 @@ def run_loss(model,optimizer,criterion, train_data, validation_data, epochs, hid
 
     return best_model, final_model, loss_history, train_loss, test_loss 
 
-def run_exp(config_model, config_train, seed, device):
+def run_exp(config_model, config_train, num_train_seq, seed, device):
     ## Generate input
     num_classes = 22
     num_inputs  = 4
     batchsize   = 1
     torch.manual_seed(seed)
-    trainset_b, trainset_p, testset, cue_dict = generate_sequence_data(num_inputs,num_classes,batchsize)
+    trainset_b, trainset_p, testset, cue_dict = generate_sequence_data(num_inputs,num_classes,batchsize, n_train_seq=num_train_seq)
 
     # Initiate RNNs
     model_b = OneStepRNN(config_model['input_size'], config_model['output_size'], 

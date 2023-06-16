@@ -57,29 +57,32 @@ def main():
 
     ## Initiate model
     # model parameters
-    config_model = {}
-    config_model['input_size']      = num_classes
-    config_model['output_size']     = 1
-    config_model['num_layers']      = 1
-    config_model['hidden_size']     = 1
-    config_model['xavier_gain']     = 0.0001
-
+    config_model = {
+        'input_size': num_classes,
+        'output_size': 1,
+        'num_layers': 1,
+        'hidden_size': 2,
+        'xavier_gain': 0.0001,
+    }
     # Run model in parallel
     ## training parameters:
-    config_train = {}
-    config_train['batchsize']   = batchsize
-    config_train['learningRate']= 0.005
-    config_train['epochs']      = 2000
-    config_train['num_sims']    = 10
-
+    config_train = {
+        'batchsize': batchsize,
+        'learningRate': 0.005,
+        'epochs': 1000,
+        'num_sims': 200,
+        'n_train_seq': 2,
+    }
     random.seed(1234)
-    random_seeds = random.sample([i for i in range(config_train['num_sims'])], config_train['num_sims'])
+    random_seeds = random.sample(
+        list(range(config_train['num_sims'])), config_train['num_sims']
+    )
     t1 = time.time()
     model_list = []
     ctx = mp.get_context('spawn')
 
     with ctx.Pool() as pool:
-        multiple_results = [pool.apply_async(run_exp, args=(config_model, config_train, seed, device))
+        multiple_results = [pool.apply_async(run_exp, args=(config_model, config_train, config_train['n_train_seq'], seed, device))
                                             for seed in tqdm(random_seeds)]
         results =[res.get() for res in multiple_results]
     t2 = time.time()
@@ -93,7 +96,7 @@ def main():
             res[key] = np.stack(res[key])
             #reshape
             res[key] = res[key].squeeze().T
-    
+
     print('balanced loss', res['loss_b'][-1,:].mean())
     print('primitives loss', res['loss_p'][-1,:].mean())
 
@@ -103,7 +106,11 @@ def main():
     d_models['config_model'] = config_model
     d_losses = {k: v for k, v in res.items() if k in keys_loss}
 
-    data = xr.DataArray(np.stack([d_losses[k] for k in d_losses.keys()]), dims=('loss_type','epoch','sim'), coords={'loss_type': list(d_losses.keys())})
+    data = xr.DataArray(
+        np.stack([d_losses[k] for k in d_losses]),
+        dims=('loss_type', 'epoch', 'sim'),
+        coords={'loss_type': list(d_losses.keys())},
+    )
 
     ##Plot loss
     plot_loss(data.sel(loss_type=data['loss_type'].str.endswith('b')), colors = ['green', 'orange', 'red'], title = 'balanced -no primitives')
@@ -111,13 +118,13 @@ def main():
 
     plot_predcorr(config_model ,d_models['final_mod_b'], d_models['test'], config_model, title = 'final: balanced -no primitives')
     plot_predcorr(config_model, d_models['final_mod_p'], d_models['test'], config_model, title = 'final: with primitives')
-   
+
     plot_predcorr(config_model ,d_models['best_mod_b'], d_models['test'], config_model, title = 'best: balanced -no primitives')
     plot_predcorr(config_model, d_models['best_mod_p'], d_models['test'], config_model, title = 'best: with primitives')
-    
+
     ## Save models & loss
-    torch.save(d_models, 'results/2seqs_res_1_modelonly.pt')
-    with open('results/2seqs_res_1_losses.pkl', 'wb') as f:
+    torch.save(d_models, f"results/{config_train['n_train_seq']}seqs_{config_model['hidden_size']}_{config_train['epochs']}_modelonly.pt")
+    with open(f"results/{config_train['n_train_seq']}seqs_{config_model['hidden_size']}_{config_train['epochs']}_losses.pkl", 'wb') as f:
         pickle.dump(data, f)
 if __name__ == "__main__":
     main()

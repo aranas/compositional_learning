@@ -9,39 +9,53 @@ import textwrap
 
 from cryptic_rnn import *
 from run_models_functions import *
+from inspect_weights import *
 
 arch = '_1' #how many hidden units
-affix = '_b' #plot primitive or balanced
+affix = '_p' #plot primitive or balanced
 mod_names = 'final_mod' + affix #'init_mod_b', 'best_mod_b', 'final_mod_b', 'init_mod_p', 'best_mod_p', 'final_mod_p'
 
 # read in models & losses
-d_models = torch.load('results/2seqs_res'+ arch +'_2000_trainlarge_modelonly.pt')
-with open('results/2seqs_res'+ arch +'_2000_trainlarge_losses.pkl', 'rb') as f:
+fname = '2seqs_1_500'
+d_models = torch.load(f'results/{fname}_modelonly.pt')
+with open(f'results/{fname}_losses.pkl', 'rb') as f:
     data = pickle.load(f)
-
-mod_config = d_models['config_model']
-
 # get dimensions
 n_loss, n_epochs, n_sim = data.shape
-# select those with train loss of epoch lower than 1
-sel = data.sel(loss_type=['train_loss_b','train_loss_p'], epoch=n_epochs-1) < 0.001
-# get indices of those that are true for both losses
-sel = sel.all(dim='loss_type')
+mod_config = d_models['config_model']
 
-d_models[mod_names].append(d_models[mod_names][0].copy())
-tensor_weights = torch.from_numpy(np.array([[0,0,8,11,14,17,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]]))
-d_models[mod_names][-1]['input2hidden.weight'] = tensor_weights
-d_models[mod_names][-1]['input2hidden.bias'] = torch.from_numpy(np.array([0]))
-d_models[mod_names][-1]['fc1tooutput.bias'] = torch.from_numpy(np.array([0]))
-d_models[mod_names][-1]['fc1tooutput.weight'] = torch.from_numpy(np.array([[1]]))
-d_models['test'].append(d_models['test'][0])
-d_models['train'+affix].append(d_models['train'+affix][0])
 
-fig, axs = plt.subplots(2, 10, figsize=(15, 5)) #sum(sel).item()
-models_plot = np.where(sel)[0]
-for i,ix in enumerate(models_plot):
-    if i > 9:
-        break
+# select best performing models (arbitrary threshold)
+loss_thresh = 100
+# find loss threshold that captures 5 highest losses
+thresh_max = np.sort(data.sel(loss_type=[f'train_loss{affix}'], epoch=n_epochs-1).values.flatten())[-5]
+# find loss threshold that captures 5 lowest losses
+thresh_min = np.sort(data.sel(loss_type=[f'train_loss{affix}'], epoch=n_epochs-1).values.flatten())[5]
+
+#select data that is above max threshold or below min threshold
+sel = data.sel(loss_type=[f'train_loss{affix}'], epoch=n_epochs-1) > thresh_max
+sel = sel + (data.sel(loss_type=[f'train_loss{affix}'], epoch=n_epochs-1) < thresh_min)
+
+sel = np.where(sel.all(dim='loss_type'))[0]
+print(f'based on threshold of {loss_thresh}, we select {len(sel)} models')
+
+
+
+# correlate weights with input values
+corr_p, corr_b = corr_weights2hidden_inputs(d_models, verbose=False)
+#select correlation based on affix
+corr = corr_p if affix == '_p' else corr_b
+#scale correlation values to be between 0 and 1 
+corr = (corr - np.min(corr)) / (np.max(corr) - np.min(corr))
+#sort sel indices according to correlation strength
+sel = sel[np.argsort(corr[sel])][::-1]
+
+#Plot up to 10 models
+n_plot = int(min(sum(sel), 10)) #only plot up to 10 models
+print(f'plotting {n_plot} models')
+fig, axs = plt.subplots(2, n_plot, figsize=(15, 5)) 
+
+for i,ix in enumerate(sel[:n_plot]):
     tensor_weights = d_models[mod_names][ix]['input2hidden.weight']#input2hidden or fc1tooutput
     state_dict = d_models[mod_names][ix]
     tensor_weights = torch.cat((tensor_weights[:, 2:6], tensor_weights[:, -5:]), dim=1)
@@ -53,18 +67,13 @@ for i,ix in enumerate(models_plot):
     axs[0,i].set_xticklabels(['a','b','c','d','+','*','-','=','recurrent'], rotation='vertical')  # Set the custom x tick labels
 
     #loss to string
-    if ix != 10:
-        loss_test = data.sel(loss_type='test_loss' + affix, epoch=n_epochs-1)[ix].item()
-        loss_train = data.sel(loss_type='train_loss' + affix, epoch=n_epochs-1)[ix].item()
-        title = 'loss_test:' + str(round(loss_test,3)) + '\n loss_train:' + str(round(loss_train,3)) + '\n'
-        title = title + str(d_models['cue_dict'][ix].values())
-    else:
-        title = 'model solution: weights correspond to value'
-
+    loss_test = data.sel(loss_type='test_loss' + affix, epoch=n_epochs-1)[ix].item()
+    loss_train = data.sel(loss_type='train_loss' + affix, epoch=n_epochs-1)[ix].item()
+    title = 'loss_test:' + str(round(loss_test,3)) + '\n loss_train:' + str(round(loss_train,3)) + '\n'
+    title = title + str(d_models['cue_dict'][ix].values()) + '\n' + str(round(corr[ix],3))
 
     if ix == 0:
         axs[0, i].set_ylabel(mod_names, rotation=0, ha='right')
-    
     wrapped_title = '\n'.join(textwrap.wrap(title, width=15))
     axs[0,i].set_title(wrapped_title,fontsize=8)
     # add colorbar to each subplot
@@ -94,7 +103,7 @@ for i,ix in enumerate(models_plot):
 
     #plt.show()
 plt.tight_layout()
-plt.savefig('figures/res'+ arch + affix +'_trainlarge.png')
+plt.savefig(f'figures/weights_{fname}{affix}.png')
 
 '''
 #TEST, UNDERSTAND SOLUTION
