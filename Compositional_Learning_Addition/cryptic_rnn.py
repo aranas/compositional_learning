@@ -262,7 +262,22 @@ class SequenceData(Dataset):
             new_label = calculate_output(tmpseq, new_cue_dict)
             # replace second item in tuple in datset[i] with new label
             self.labels[i] = new_label
-        
+    
+    def sort_by_label(self, sort = 'asc'):
+        """ Function sorts dataset by label value
+        Args
+            sort: 'asc' for ascending, 'desc' for descending
+        """
+        if sort == 'asc':
+            ix = np.argsort(self.labels)
+            self.data = [self.data[i] for i in ix]
+            self.labels = [self.labels[i] for i in ix]
+        elif sort == 'desc':
+            ix = np.argsort(self.labels)[::-1]
+            self.data = [self.data[i] for i in ix]
+            self.labels = [self.labels[i] for i in ix]
+        else:
+            print('sort should be "asc" or "desc"')
 
     def __len__(self):
         return len(self.data)

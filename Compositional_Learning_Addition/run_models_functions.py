@@ -21,7 +21,7 @@ def collate_fn(batch):
     
     return padded_sequences, out_states
 
-def generate_sequence_data(num_inputs,num_classes,batchsize, n_train_seq=2, verbose=False):
+def generate_sequence_data(num_inputs,num_classes,batchsize, n_train_seq=2, valsorted=False, verbose=False):
         ops = '+'
         total_syms = ['A','B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
         
@@ -29,8 +29,8 @@ def generate_sequence_data(num_inputs,num_classes,batchsize, n_train_seq=2, verb
         all_input_vals = list(np.arange(2,18))
         input_vals = random.sample(all_input_vals,num_inputs)
         #input_vals = [sorted(input_vals)[i] for i in [0,2,3,1]] # used for 'trainlarge' meaning the base sequences used for training contained the largest values (to map out the max range of valid responses)
-        
-        # randomly select values for each input
+        if valsorted:
+            input_vals = sorted(input_vals)
         cue_dict = {}
         for i, s in enumerate(all_syms):
             cue_dict[s] = input_vals[i]
@@ -103,9 +103,9 @@ def run_exp(config_model, config_train, num_train_seq, seed, device):
     ## Generate input
     num_classes = 22
     num_inputs  = 4
-    batchsize   = 1
+    batchsize   =  config_train['batchsize']
     torch.manual_seed(seed)
-    trainset_b, trainset_p, testset, cue_dict = generate_sequence_data(num_inputs,num_classes,batchsize, n_train_seq=num_train_seq)
+    trainset_b, trainset_p, testset, cue_dict = generate_sequence_data(num_inputs,num_classes,batchsize, valsorted=config_train['valsorted'], n_train_seq=num_train_seq)
 
     # Initiate RNNs
     model_b = OneStepRNN(config_model['input_size'], config_model['output_size'], 

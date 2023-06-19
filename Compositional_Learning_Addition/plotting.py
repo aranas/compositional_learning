@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from cryptic_rnn import *
 from run_models_functions import *
 from sklearn.metrics import r2_score
+from sklearn.manifold import MDS
+
 
 # functions
 def plot_predcorr(config, fname, model,test_data, model_config,title, cond = 'b'):
@@ -89,6 +91,7 @@ def get_hidden_reps(models, config, mod_names = 'final_mod'):
         new_testseqs = []
         for datset in [models['train_b'][0].dataset, models['test'][0].dataset]:
             datset.recompute_label(models['cue_dict'][i_sim])
+            datset.sort_by_label(sort='asc')
             new_testseqs.append(datset)
 
         testset = torch.utils.data.ConcatDataset(new_testseqs)
@@ -108,7 +111,6 @@ def get_hidden_reps(models, config, mod_names = 'final_mod'):
     return matlist, testset
 
 def MDS_plot_prims(fname, meanRDM, testseqs, MDStype = 'MDS', title = '', min_dim = 0, step_num = 4, plotlines=True, rand_state = 0):
-    
     plt.rcParams['figure.figsize'] = 6, 6
     fig, ax = plt.subplots()
 
@@ -148,7 +150,7 @@ def MDS_plot(fname, matlist, testseqs, trainseqs, MDStype = 'MDS', min_dim = 0, 
         if MDStype == 'PCA':
             mds = PCA(n_components=3)
         if MDStype == 'MDS':
-            mds = MDS(dissimilarity='precomputed',random_state=rand_state, n_components=2)
+            mds = MDS(dissimilarity='precomputed',random_state=rand_state, n_components=3)
 
         X_transform = mds.fit_transform(dist)
         ax = axs[j]
